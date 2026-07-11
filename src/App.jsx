@@ -101,6 +101,15 @@ function App() {
   const cancelTranslationRef = useRef(false);
   const translationAbortControllerRef = useRef(null);
 
+  // 27단계 핵심: 설정/보관함 이동 후 실시간번역 탭 복귀 시 보던 뷰어 화면을 고스란히 복원하는 서브탭 상태 및 동기화 이펙트
+  const [lastTranslateSubTab, setLastTranslateSubTab] = useState('translate');
+
+  useEffect(() => {
+    if (activeTab === 'translate' || activeTab === 'viewer' || activeTab === 'pageResult') {
+      setLastTranslateSubTab(activeTab);
+    }
+  }, [activeTab]);
+
   // 뷰어 및 렌더링 상태
   const [viewerTitle, setViewerTitle] = useState('');
   const [viewerParagraphs, setViewerParagraphs] = useState([]); // [{ original, translated }]
@@ -1013,6 +1022,15 @@ function App() {
             <div style={{ borderBottom: '1px solid #252630', paddingBottom: '12px' }}>
               <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
                 <button 
+                  onClick={() => {
+                    setLastTranslateSubTab('translate');
+                    setActiveTab('translate');
+                  }}
+                  style={{ background: '#252630', border: 'none', color: '#babbf1', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                >
+                  ← 주소 입력창으로
+                </button>
+                <button 
                   onClick={() => setActiveTab('library')}
                   style={{ background: '#252630', border: 'none', color: '#e2e4ed', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
                 >
@@ -1584,7 +1602,13 @@ function App() {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                if (tab.id === 'translate') {
+                  setActiveTab(lastTranslateSubTab);
+                } else {
+                  setActiveTab(tab.id);
+                }
+              }}
               style={{
                 flex: 1,
                 display: 'flex',
