@@ -120,6 +120,16 @@ function App() {
   const [viewerNextUrl, setViewerNextUrl] = useState('');
   const [viewerIndexUrl, setViewerIndexUrl] = useState('');
 
+  const [clickedOriginals, setClickedOriginals] = useState({});
+  const handleParagraphClick = (idx) => {
+    if (readerSettings.opacity === 0) {
+      setClickedOriginals(prev => ({
+        ...prev,
+        [idx]: !prev[idx]
+      }));
+    }
+  };
+
   // 백엔드 Vercel 실시간 로그 대시보드로 클라이언트 런타임 오류 리포트 전송
   const reportErrorToBackend = async (error, contextInfo = '') => {
     try {
@@ -393,6 +403,7 @@ function App() {
 
     setIsTranslating(true);
     cancelTranslationRef.current = false;
+    setClickedOriginals({});
     setTransProgress(5);
     setNovelHtmlResult('');
     setViewerParagraphs([]);
@@ -1146,26 +1157,34 @@ function App() {
             }}>
               {viewerParagraphs
                 .filter(p => p.translated !== 'AI 번역 대기 중...' && p.translated !== 'AI 번역 가동 중...')
-                .map((p, idx) => (
-                  <div key={idx} style={{ 
-                    textIndent: `${readerSettings.textIndent}em`
-                  }}>
-                    {/* 번역문 출력 */}
-                    <p style={{ margin: 0, color: readerSettings.fontColor }}>{p.translated}</p>
-                    
-                    {/* 원문 출력 (한자/일본어 병기 유지 스위치가 켜진 경우에만 렌더링) */}
-                    {readerSettings.keepOriginalText && p.original && (
-                      <p style={{ 
-                        margin: '6px 0 0 0', 
-                        color: readerSettings.fontColor, 
-                        fontSize: '0.85em', 
-                        opacity: readerSettings.opacity / 100 
-                      }}>
-                        {p.original}
-                      </p>
-                    )}
-                  </div>
-                ))}
+                .map((p, idx) => {
+                  const showOriginal = readerSettings.keepOriginalText && p.original && (readerSettings.opacity > 0 || clickedOriginals[idx]);
+                  return (
+                    <div 
+                      key={idx} 
+                      onClick={() => handleParagraphClick(idx)}
+                      style={{ 
+                        textIndent: `${readerSettings.textIndent}em`,
+                        cursor: (readerSettings.keepOriginalText && readerSettings.opacity === 0) ? 'pointer' : 'default'
+                      }}
+                    >
+                      {/* 번역문 출력 */}
+                      <p style={{ margin: 0, color: readerSettings.fontColor }}>{p.translated}</p>
+                      
+                      {/* 원문 출력 (35단계 핵심: 투명도 0일 때 숨김 처리 및 개별 클릭 탭 오픈 지원) */}
+                      {showOriginal && (
+                        <p style={{ 
+                          margin: '6px 0 0 0', 
+                          color: readerSettings.fontColor, 
+                          fontSize: '0.85em', 
+                          opacity: readerSettings.opacity === 0 ? 0.5 : (readerSettings.opacity / 100)
+                        }}>
+                          {p.original}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
 
             {/* 소설 네비게이션 버튼 그룹 (이전화, 목차, 다음화) (18단계 핵심) */}
@@ -1531,11 +1550,17 @@ function App() {
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#a5adce' }}>원문 투명도 대조 (%)</label>
+                      <label style={{ fontSize: '11px', color: '#a5adce' }}>원문 투명도 (0~100 %)</label>
                       <input 
-                        type="range" min="0" max="100" value={readerSettings.opacity} 
-                        onChange={(e) => handleUpdateReaderSetting('opacity', parseInt(e.target.value))}
-                        style={{ marginTop: '8px' }}
+                        type="number" min="0" max="100" value={readerSettings.opacity} 
+                        onChange={(e) => {
+                          let val = parseInt(e.target.value);
+                          if (isNaN(val)) val = 0;
+                          if (val < 0) val = 0;
+                          if (val > 100) val = 100;
+                          handleUpdateReaderSetting('opacity', val);
+                        }}
+                        style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed', fontSize: '13px' }}
                       />
                     </div>
                   </div>
