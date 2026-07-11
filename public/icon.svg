@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <rect width="100" height="100" rx="20" fill="#1e1e2e"/>
+  <!-- 책 심볼 -->
+  <path d="M25 35C25 28 35 28 50 32C65 28 75 28 75 35V75C75 68 65 68 50 72C35 68 25 68 25 75V35Z" fill="#cdd6f4" stroke="#89b4fa" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M50 32V72" stroke="#89b4fa" stroke-width="3" stroke-linecap="round"/>
+  <!-- 번역 번개 심볼 -->
+  <path d="M45 42L55 52M55 42L45 52" stroke="#a6e3a1" stroke-width="4" stroke-linecap="round"/>
+</svg>

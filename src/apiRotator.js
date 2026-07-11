@@ -1,0 +1,157 @@
+/**
+ * 사용자가 입력한 API 키 목록을 가져옵니다.
+ */
+export function getApiKeys() {
+  const keysStr = localStorage.getItem('noveltrans_api_keys') || '';
+  return keysStr.split('\n').map(k => k.trim()).filter(k => k.length > 0);
+}
+
+/**
+ * API 키 목록을 영구 저장합니다.
+ */
+export function saveApiKeys(keysArray) {
+  const keysStr = keysArray.join('\n');
+  localStorage.setItem('noveltrans_api_keys', keysStr);
+}
+
+/**
+ * 현재 사용 중인 API 키 인덱스를 가져옵니다.
+ */
+function getActiveKeyIndex() {
+  const idx = parseInt(localStorage.getItem('noveltrans_active_key_idx') || '0');
+  const keys = getApiKeys();
+  if (idx >= keys.length) return 0;
+  return idx;
+}
+
+/**
+ * 사용 중인 API 키 인덱스를 저장합니다.
+ */
+function setActiveKeyIndex(index) {
+  localStorage.setItem('noveltrans_active_key_idx', index.toString());
+}
+
+/**
+ * 호출 한도 도달 또는 에러 발생 시 다음 API 키로 인덱스를 회전합니다.
+ */
+export function rotateApiKey() {
+  const keys = getApiKeys();
+  if (keys.length <= 1) return null; // 회전할 키가 없음
+
+  const currentIdx = getActiveKeyIndex();
+  const nextIdx = (currentIdx + 1) % keys.length;
+  setActiveKeyIndex(nextIdx);
+  console.warn(`[API Key Rotated] Switched key index from ${currentIdx} to ${nextIdx}`);
+  return keys[nextIdx];
+}
+
+/**
+ * 현재 활성화된 API 키를 가져옵니다.
+ */
+export function getActiveApiKey() {
+  const keys = getApiKeys();
+  if (keys.length === 0) return null;
+  return keys[getActiveKeyIndex()];
+}
+
+/**
+ * 구글 Gemini API를 호출하여 번역을 수행합니다. (키 로테이션 및 재시도 기능 탑재)
+ * @param {string} textToTranslate 번역할 소설 원문
+ * @param {string} systemInstruction 번역에 적용할 상세 프롬프트 (시스템 지시어)
+ * @param {string} model 사용할 Gemini 모델명 (예: gemini-3.1-flash-lite)
+ */
+export async function translateTextWithRotation(textToTranslate, systemInstruction, model = 'gemini-1.5-flash') {
+  const keys = getApiKeys();
+  if (keys.length === 0) {
+    throw new Error('API Key가 등록되어 있지 않습니다. 설정에서 키를 먼저 입력해 주세요.');
+  }
+
+  // 등록된 API 키의 개수만큼 로테이션하며 재시도 수행
+  let attempts = 0;
+  const maxAttempts = keys.length;
+
+  while (attempts < maxAttempts) {
+    const apiKey = getActiveApiKey();
+    if (!apiKey) {
+      throw new Error('유효한 API Key를 찾을 수 없습니다.');
+    }
+
+    const cleanedModelName = model.startsWith('models/') ? model : `models/${model}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/${cleanedModelName}:generateContent?key=${apiKey}`;
+
+    const requestBody = {
+      contents: [
+        {
+          parts: [
+            { text: textToTranslate }
+          ]
+        }
+      ],
+      systemInstruction: {
+        parts: [
+          { text: systemInstruction }
+        ]
+      },
+      generationConfig: {
+        temperature: 0.3 // 소설의 일관된 번역 퀄리티를 위해 낮은 온도로 세팅
+      }
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      const responseData = await response.json();
+
+      // 1. 할당량 초과(429) 또는 인증 오류(400/403) 발생 시 키 로테이션 후 재시도
+      if (response.status === 429 || (responseData.error && (
+        responseData.error.status === 'RESOURCE_EXHAUSTED' || 
+        responseData.error.message.includes('API key') ||
+        responseData.error.message.includes('Quota exceeded')
+      ))) {
+        console.warn(`[Gemini API Error] status=${response.status}, message=${responseData.error?.message}. Rotating key...`);
+        rotateApiKey();
+        attempts++;
+        continue; // 다음 루프로 넘어가 새 키로 재시도
+      }
+
+      // 2. 기타 모델 404 에러 등 (예: gemini-3.1-flash-lite 모델 미존재 시)
+      if (response.status === 404) {
+        throw new Error(`모델을 찾을 수 없습니다 (${model}). 지원되지 않는 모델이거나 단종된 세대입니다.`);
+      }
+
+      // 3. 일반 오류 처리
+      if (!response.ok || responseData.error) {
+        throw new Error(responseData.error?.message || `HTTP error! status: ${response.status}`);
+      }
+
+      // 4. 번역 결과 반환
+      const translatedText = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!translatedText) {
+        throw new Error('API 응답에서 번역 텍스트를 추출하지 못했습니다.');
+      }
+
+      return translatedText;
+
+    } catch (error) {
+      // 네트워크 장애 등 물리적 실패가 발생했을 때
+      console.error(`[Fetch Failure] Attempt ${attempts + 1} failed:`, error);
+      
+      // 마지막 시도였다면 에러를 전방으로 전달
+      if (attempts === maxAttempts - 1) {
+        throw new Error(`모든 API Key 사용 실패: ${error.message}`);
+      }
+      
+      // 장애 시에도 일단 키를 돌려 다른 키로 시도
+      rotateApiKey();
+      attempts++;
+    }
+  }
+
+  throw new Error('모든 API Key의 일일 한도가 소모되었거나 유효하지 않습니다.');
+}

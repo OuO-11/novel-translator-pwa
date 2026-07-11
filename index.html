@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#1e1e2e" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>NovelTrans - AI 웹소설 번역기</title>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #1e1e2e; color: #cdd6f4; font-family: sans-serif;">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      // PWA 서비스 워커 등록 스크립트
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('Service Worker Registered!', reg.scope))
+            .catch(err => console.log('Service Worker Registration Failed:', err));
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+test_proxy.py
+*.log
+.system_generated/
+.agents/
