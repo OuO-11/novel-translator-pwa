@@ -21,7 +21,7 @@ const DEFAULT_BASE_PROMPTS = {
 [중국어 고유명사 지침]
 - 중화권의 인명은 기본적으로 한국 한자음으로 씁니다. (예: 毛泽东 -> 모택동 / 成龍 -> 성룡 / 周明瑞 -> 주명서 / 小龍女 -> 소용녀)
 - 단, 현대 배경의 단어가 한국에서 이미 원음 표기로 매우 잘 알려진 경우는 알려진 표기를 따릅니다. (예: 习近平 -> 시진핑 / 北京 -> 베이징 / 上海 -> 상하이)
-- 배경이 무협/선협/대체역사 장르의 소설이라면, 중국어 고유명사는 무조건 한국 한자음으로 씁니다. (예: 北京 -> 북경 / 上海 -> 상해 / 北冥神功 -> 북명신공)`,
+- 배경이 무협/선협/대체역사 장르 of 소설이라면, 중국어 고유명사는 무조건 한국 한자음으로 씁니다. (예: 北京 -> 북경 / 上海 -> 상해 / 北冥神功 -> 북명신공)`,
   japanese: `You are a professional literary translator specializing in translating Japanese light novels and web novels into natural and engaging Korean. Follow these instructions:
 
 1. Translate into fluent Korean light novel style. Avoid direct translation of Japanese grammar style (e.g., '~의 경우', '~에 있어서' 같은 직역 지양).
@@ -207,7 +207,6 @@ function App() {
     try {
       const inputOrigin = new URL(currentInputUrl).origin;
       const clickedObj = new URL(clickedUrl);
-      // 만약 클릭된 주소의 도메인이 현재 내 호스트명(Vercel 등)과 같다면, 원본 사이트 도메인 주소로 원상 복구
       if (clickedObj.host === window.location.host) {
         return inputOrigin + clickedObj.pathname + clickedObj.search + clickedObj.hash;
       }
@@ -303,7 +302,7 @@ function App() {
     }
   };
 
-  // 실시간 번역 공통 구동 코어 함수 (파라미터 기반 트리거 유도)
+  // 실시간 번역 공통 구동 코어 함수
   const triggerTranslationFlow = async (targetUrl, targetMode, forceChapter = null) => {
     const activeKey = getActiveApiKey();
     if (!activeKey) {
@@ -319,8 +318,6 @@ function App() {
 
     const basePrompt = basePrompts[selectedLang] || '';
     const rawSubPrompt = selectedPreset === 'default' ? '' : getPromptContent(selectedLang, selectedPreset);
-
-    // 화수 산출
     const chapterToUse = forceChapter !== null ? forceChapter : detectChapterFromUrl(targetUrl);
 
     try {
@@ -346,9 +343,11 @@ function App() {
         setNovelHtmlResult(translatedHtml);
         setActiveTab('pageResult');
       } else {
+        // [본문 뷰어 모드 - colomo.dev 스타일 실시간 스트리밍 출력 이식]
         const { title, paragraphs } = extractNovelContent(data.html, targetUrl);
         setViewerTitle(title);
         
+        // 보관함 DB 등록 및 화수 업데이트
         const novelId = await saveNovel({
           title,
           url: targetUrl,
@@ -357,6 +356,7 @@ function App() {
         });
         setActiveViewerNovelId(novelId);
 
+        // 캐시 조회
         const cached = await getEpisode(novelId, chapterToUse);
         if (cached) {
           const parsedLines = JSON.parse(cached.translatedText);
@@ -366,9 +366,12 @@ function App() {
           setTransProgress(100);
           setActiveTab('viewer');
         } else {
+          // 캐시가 없을 시, 즉시 리더기 탭(viewer)으로 넘어가서 원문을 먼저 채우고 대기 (실시간 한 줄씩 뿅뿅 뜨게 유도)
+          const initialViewerLines = paragraphs.map(p => ({ original: p, translated: 'AI 번역 대기 중...' }));
+          setViewerParagraphs(initialViewerLines);
+          setActiveTab('viewer'); // 대기 화면을 보여주지 않고 즉시 리더기로 휙 이동!
+
           const translatedList = [];
-          const combinedList = [];
-          
           const fullOriginalText = paragraphs.join('\n');
           const activeSubPrompt = filterActiveGlossary(rawSubPrompt, fullOriginalText);
           
@@ -378,17 +381,31 @@ function App() {
 
           for (let i = 0; i < paragraphs.length; i++) {
             const orig = paragraphs[i];
-            setTransProgress(40 + Math.round((i / paragraphs.length) * 55));
+            
+            // 뷰어 화면 개별 문단에 임시로 '번역 중...' 상태 노출
+            setViewerParagraphs(prev => {
+              const next = [...prev];
+              next[i] = { original: orig, translated: 'AI 번역 가동 중...' };
+              return next;
+            });
+
+            // 해당 단락 1개 번역 실행
             const trans = await translateTextWithRotation(orig, finalSystemPrompt, selectedModel);
             translatedList.push(trans);
-            combinedList.push({ original: orig, translated: trans });
+
+            // 번역 완료 즉시 뷰어 화면의 개별 문단을 실시간 한글로 뿅 업데이트! (스트리밍 경험 제공)
+            setViewerParagraphs(prev => {
+              const next = [...prev];
+              next[i] = { original: orig, translated: trans };
+              return next;
+            });
+
+            // 진행률 표시
+            setTransProgress(Math.round(((i + 1) / paragraphs.length) * 100));
           }
 
+          // 전체 번역이 마쳐진 후 DB 캐시에 영구 적재
           await saveEpisode(novelId, chapterToUse, JSON.stringify(translatedList), JSON.stringify(paragraphs));
-          
-          setViewerParagraphs(combinedList);
-          setTransProgress(100);
-          setActiveTab('viewer');
         }
         
         getNovels().then(setNovels);
@@ -403,32 +420,27 @@ function App() {
 
   // 수동 번역 시작 버튼 트리거
   const handleTranslateStart = () => {
-    triggerTranslationFlow(inputUrl, transMode, transMode === 'viewer' ? activeViewerChapter : null);
+    triggerTranslationFlow(inputUrl, transMode);
   };
 
-  // [심리스 자동 서핑 & 리더기 스위칭 시스템 (11단계 핵심)]
-  // iframe 내부에서 임의의 링크(a 태그) 클릭이 일어났을 때, 부모가 낚아채어 동적 리디렉션 처리하는 핵심 핸들러
+  // iframe 내부 링크 클릭 가로채기 핸들러
   const handleIframeNavigate = (clickedUrl) => {
     const originalAbsoluteUrl = resolveAbsoluteUrl(inputUrlRef.current, clickedUrl);
     
-    // 만약 클릭된 URL이 소설의 상세 화수 본문 패턴에 매칭된다면
     if (isNovelEpisodeUrl(originalAbsoluteUrl)) {
       const detectedChapter = detectChapterFromUrl(originalAbsoluteUrl);
       setInputUrl(originalAbsoluteUrl);
       setTransMode('viewer');
       setActiveViewerChapter(detectedChapter);
-      
-      // 리더기 뷰어로 출력모드를 자동 스위칭하여 번역 즉시 개시!
       triggerTranslationFlow(originalAbsoluteUrl, 'viewer', detectedChapter);
     } else {
-      // 본문이 아닌 다른 목차/카테고리/목록 링크라면 목록 번역 상태를 유지하면서 해당 URL 번역 실행
       setInputUrl(originalAbsoluteUrl);
       setTransMode('page');
       triggerTranslationFlow(originalAbsoluteUrl, 'page');
     }
   };
 
-  // iframe 로드 완료 시 이벤트 캡처 주입 (동일 출처 샌드박스로 인해 DOM 리스너 즉시 연동 완료)
+  // iframe 로드 완료 시 이벤트 캡처 주입
   const handleIframeLoad = (e) => {
     try {
       const iframe = e.target;
@@ -438,7 +450,6 @@ function App() {
       const links = iframeDoc.getElementsByTagName('a');
       for (let link of links) {
         link.addEventListener('click', (event) => {
-          // 원래의 브라우저 기본 이동을 차단하고, 부모 핸들러로 신호를 전송
           event.preventDefault();
           const targetHref = link.href;
           if (targetHref) {
@@ -447,7 +458,7 @@ function App() {
         });
       }
     } catch (err) {
-      console.warn("Iframe click capture bypassed (Same-Origin restriction fallback):", err);
+      console.warn("Iframe click capture bypassed:", err);
     }
   };
 
@@ -499,7 +510,6 @@ function App() {
     );
   }
 
-  // 현재 언어 분류에 속한 프리셋 목록
   const currentPresets = promptsTree[selectedLang]?.presets || {};
 
   return (
@@ -684,21 +694,7 @@ function App() {
               </select>
             </div>
 
-            {/* 본문 뷰어일 시 화수 조절 */}
-            {transMode === 'viewer' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#181825', padding: '12px', borderRadius: '10px', border: '1px solid #313244' }}>
-                <span style={{ fontSize: '13px', color: '#a6adc8' }}>소설 화수 (URL 분석 자동 감지됨)</span>
-                <input 
-                  type="number" 
-                  value={activeViewerChapter} 
-                  onChange={(e) => setActiveViewerChapter(Math.max(1, parseInt(e.target.value) || 1))}
-                  style={{
-                    width: '70px', backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4', textAlign: 'center', fontWeight: 'bold'
-                  }}
-                />
-                <span style={{ fontSize: '12px', color: '#89b4fa' }}>(필요 시 수동 조절 가능)</span>
-              </div>
-            )}
+            {/* 수동 화수 선택창 제거 완료 (유저 피드백 반영: 완전 자동감지형 미니멀리즘 인터페이스) */}
 
             {/* 번역 기동 버튼 */}
             <button 
@@ -733,7 +729,41 @@ function App() {
 
         {/* 탭 3: 가독성 리더기 뷰어 (Viewer) */}
         {activeTab === 'viewer' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative' }}>
+            
+            {/* 번역 진행률 플로팅 프로그래스 바 (colomo.dev와 동일하게 뷰어 상태에서 실시간 전하량 렌더링) */}
+            {isTranslating && (
+              <div style={{
+                position: 'sticky',
+                top: '55px',
+                zIndex: 5,
+                backgroundColor: '#a6e3a1',
+                color: '#11111b',
+                padding: '10px 16px',
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontWeight: 'bold',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                fontSize: '13px',
+                animation: 'pulse 1.5s infinite'
+              }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <RefreshCw style={{ animation: 'spin 1.2s linear infinite' }} size={16} />
+                  실시간 백그라운드 번역 진행 중...
+                </span>
+                <span>{transProgress}% 완료</span>
+                <style>{`
+                  @keyframes pulse {
+                    0% { transform: scale(1); }
+                    50% { transform: scale(1.02); }
+                    100% { transform: scale(1); }
+                  }
+                `}</style>
+              </div>
+            )}
+
             <div style={{ borderBottom: '1px solid #313244', paddingBottom: '12px' }}>
               <button 
                 onClick={() => setActiveTab('library')}
