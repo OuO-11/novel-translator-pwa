@@ -6,6 +6,30 @@ import { getPromptsTree, savePreset, deletePreset, getPromptContent } from './pr
 import { translateFullPage, extractNovelContent } from './parser.js';
 import { downloadCachedEpisodes } from './downloader.js';
 
+// 언어별 전용 기본 번역기 프롬프트 (프롬프트 1) 기본값 정의 (비구씨 정밀 번역 규칙 기반 탑재)
+const DEFAULT_BASE_PROMPTS = {
+  chinese: `You are a professional literary translator specializing in translating Chinese web novels into natural, fluent, and engaging Korean. Follow these instructions:
+
+1. Translate the source text into natural Korean novel style (소설체). Avoid mechanical direct translation.
+2. Translate dialogues using natural Korean colloquial style.
+3. Return only the translated Korean text without any notes, explanations, or original Chinese text.
+
+[번역 지침]
+- 각 캐릭터의 말투 및 어투는 해당 캐릭터의 개성이 잘 드러나도록 자연스럽게 번역합니다. 의역을 적절히 사용하십시오.
+- 일반적인 한국어 소설처럼 문장 부호를 씁니다. 대사는 큰따옴표("")로, 독백이나 생각은 작은따옴표('')로 표현합니다.
+
+[중국어 고유명사 지침]
+- 중화권의 인명은 기본적으로 한국 한자음으로 씁니다. (예: 毛泽东 -> 모택동 / 成龍 -> 성룡 / 周明瑞 -> 주명서 / 小龍女 -> 소용녀)
+- 단, 현대 배경의 단어가 한국에서 이미 원음 표기로 매우 잘 알려진 경우는 알려진 표기를 따릅니다. (예: 习近平 -> 시진핑 / 北京 -> 베이징 / 上海 -> 상하이)
+- 배경이 무협/선협/대체역사 장르의 소설이라면, 중국어 고유명사는 무조건 한국 한자음으로 씁니다. (예: 北京 -> 북경 / 上海 -> 상해 / 北冥神功 -> 북명신공)`,
+  japanese: `You are a professional literary translator specializing in translating Japanese light novels and web novels into natural and engaging Korean. Follow these instructions:
+
+1. Translate into fluent Korean light novel style. Avoid direct translation of Japanese grammar style (e.g., '~의 경우', '~에 있어서' 같은 직역 지양).
+2. Translate dialogues naturally based on character relationships and personality.
+3. Return only the Korean translation.
+4. Keep the character names consistent in official Korean localizations.`
+};
+
 // 리더기 테마 및 스타일 기본값 정의
 const DEFAULT_READER_SETTINGS = {
   fontFamily: 'system-ui',
@@ -42,11 +66,16 @@ function App() {
   });
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-lite');
   
-  // 첫 렌더링 시점의 옵션 데이터 불일치(TypeError)를 방지하기 위해 
-  // 동기식으로 미리 작성된 트리 데이터를 useState 초기값으로 즉시 바인딩 (안정성 극대화)
+  // 프롬프트 1 (Base Prompt): 언어별 기본 번역기 프롬프트 상태
+  const [basePrompts, setBasePrompts] = useState(() => {
+    const cached = localStorage.getItem('noveltrans_base_prompts');
+    return cached ? JSON.parse(cached) : DEFAULT_BASE_PROMPTS;
+  });
+
+  // 프롬프트 2 (Sub Preset): 추가 커스텀 템플릿 트리 상태
   const [promptsTree, setPromptsTree] = useState(() => getPromptsTree());
   const [selectedLang, setSelectedLang] = useState('chinese'); // 번역 언어 모드 (chinese, japanese)
-  const [selectedPreset, setSelectedPreset] = useState('default'); // 프롬프트 프리셋
+  const [selectedPreset, setSelectedPreset] = useState('default'); // 추가 커스텀 프리셋
   const [cacheStats, setCacheStats] = useState({ totalNovels: 0, totalCachedEpisodes: 0 });
 
   // 프롬프트 직접 추가 폼 상태
@@ -108,11 +137,42 @@ function App() {
     init();
   }, []);
 
+  // [토큰 및 컨텍스트 최적화 핵심 엔진 개발 (10.5단계)]
+  // 300개가 넘는 대용량 단어 사전(프롬프트 2)이 있더라도, 
+  // 현재 번역할 원문에 실제로 존재하는 단어만 자바스크립트 includes 매칭으로 발라내는 동적 필터
+  const filterActiveGlossary = (rawSubPrompt, originalTextSegment) => {
+    if (!rawSubPrompt) return '';
+    const lines = rawSubPrompt.split('\n');
+    
+    const matchedLines = lines.filter(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+
+      // 화살표(->), 등호(=), 콜론(:) 기호 기준 왼쪽의 고유 키워드(중국어/일본어 원문) 추출
+      const match = trimmed.match(/(.*?)(?:->|=|\:)/);
+      const keyword = match 
+        ? match[1].replace(/[-*\s]/g, '').trim() // 불릿 마크 및 공백 제거
+        : trimmed.trim();
+
+      // 원문 텍스트 내에 실제로 해당 단어가 출몰하는 경우에만 필터링에 탑재
+      return keyword && keyword.length >= 2 && originalTextSegment.includes(keyword);
+    });
+
+    return matchedLines.join('\n');
+  };
+
   // 리더기 커스텀 설정 변경 핸들러
   const handleUpdateReaderSetting = (key, value) => {
     const updated = { ...readerSettings, [key]: value };
     setReaderSettings(updated);
     localStorage.setItem('noveltrans_reader_settings', JSON.stringify(updated));
+  };
+
+  // 기본 언어 번역기 프롬프트 (프롬프트 1) 개별 편집 및 저장 핸들러
+  const handleUpdateBasePrompt = (lang, value) => {
+    const updated = { ...basePrompts, [lang]: value };
+    setBasePrompts(updated);
+    localStorage.setItem('noveltrans_base_prompts', JSON.stringify(updated));
   };
 
   // URL에서 자동으로 화수(Chapter)를 파싱
@@ -226,7 +286,8 @@ function App() {
     setNovelHtmlResult('');
     setViewerParagraphs([]);
 
-    const systemPrompt = getPromptContent(selectedLang, selectedPreset);
+    const basePrompt = basePrompts[selectedLang] || '';
+    const rawSubPrompt = selectedPreset === 'default' ? '' : getPromptContent(selectedLang, selectedPreset);
 
     try {
       setTransProgress(20);
@@ -239,13 +300,20 @@ function App() {
       const siteName = inputUrl.includes('52shuku') ? '52shuku' : inputUrl.includes('jjwxc') ? '진강문학성' : inputUrl.includes('ao3') ? 'AO3' : '기타';
 
       if (transMode === 'page') {
+        // 목록 번역 모드의 경우 전체 HTML 데이터를 대상으로 용어 사전 매칭 필터 구동 (토큰 절약)
+        const activeSubPrompt = filterActiveGlossary(rawSubPrompt, data.html);
+        const finalSystemPrompt = activeSubPrompt 
+          ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
+          : basePrompt;
+
         setTransProgress(40);
-        const translatedHtml = await translateFullPage(data.html, systemPrompt, selectedModel, (progress) => {
+        const translatedHtml = await translateFullPage(data.html, finalSystemPrompt, selectedModel, (progress) => {
           setTransProgress(40 + Math.round(progress * 0.6));
         });
         setNovelHtmlResult(translatedHtml);
         setActiveTab('pageResult');
       } else {
+        // 본문 뷰어 번역 모드
         setTransProgress(40);
         const { title, paragraphs } = extractNovelContent(data.html, inputUrl);
         setViewerTitle(title);
@@ -269,13 +337,24 @@ function App() {
           setTransProgress(100);
           setActiveTab('viewer');
         } else {
+          // 캐시가 없는 생 원문 번역 시점
           const translatedList = [];
           const combinedList = [];
           
+          // 소설 1화 전체 원문 텍스트 병합 (용어 자동 필터용 타겟 단락 생성)
+          const fullOriginalText = paragraphs.join('\n');
+          // 내 단어 사전에 300개의 단어가 있더라도, 실제 이 1화 텍스트 뭉치에 등장하는 용어만 쏙 골라내어 프롬프트 2 구성 (토큰 절약 극대화)
+          const activeSubPrompt = filterActiveGlossary(rawSubPrompt, fullOriginalText);
+          
+          const finalSystemPrompt = activeSubPrompt 
+            ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
+            : basePrompt;
+
           for (let i = 0; i < paragraphs.length; i++) {
             const orig = paragraphs[i];
             setTransProgress(40 + Math.round((i / paragraphs.length) * 55));
-            const trans = await translateTextWithRotation(orig, systemPrompt, selectedModel);
+            // 최적화가 완수된 슬림하고 정밀한 시스템 프롬프트를 주입하여 Gemini 번역 가동
+            const trans = await translateTextWithRotation(orig, finalSystemPrompt, selectedModel);
             translatedList.push(trans);
             combinedList.push({ original: orig, translated: trans });
           }
@@ -314,7 +393,6 @@ function App() {
     }
   };
 
-  // DB와 가상 트리가 연결되지 않은 상태의 렌더링 충돌을 원천 방어하기 위한 로딩 지연 가드 (안정성 보장)
   if (isLoading) {
     return (
       <div style={{
@@ -337,7 +415,6 @@ function App() {
           marginBottom: '16px'
         }} />
         <span style={{ fontSize: '14px', color: '#a6adc8' }}>로컬 데이터베이스 연결 중...</span>
-        {/* CSS 키프레임 인라인 스타일로 스핀 회전 효과 선언 */}
         <style>{`
           @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -715,38 +792,84 @@ function App() {
               </button>
             </div>
 
-            {/* 프롬프트 템플릿 관리 영역 */}
+            {/* 프롬프트 1 (Base Prompt): 언어별 기본 번역기 프롬프트 설정 (비구씨 템플릿 포함) */}
             <div style={{ backgroundColor: '#181825', padding: '16px', borderRadius: '14px', border: '1px solid #313244', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <h4 style={{ margin: 0, fontSize: '14px', color: '#cba6f7' }}>📝 프롬프트 템플릿 추가/관리</h4>
+              <h4 style={{ margin: 0, fontSize: '14px', color: '#f9e2af' }}>🌐 1. 기본 언어 번역기 지침 (프롬프트 1)</h4>
               
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button 
                   onClick={() => setSelectedLang('chinese')} 
                   style={{
                     flex: 1, padding: '8px', borderRadius: '6px', border: 'none',
-                    backgroundColor: selectedLang === 'chinese' ? '#89b4fa' : '#313244',
+                    backgroundColor: selectedLang === 'chinese' ? '#f9e2af' : '#313244',
                     color: selectedLang === 'chinese' ? '#11111b' : '#cdd6f4',
-                    fontWeight: 'bold', cursor: 'pointer'
+                    fontWeight: 'bold', cursor: 'pointer', fontSize: '12px'
                   }}
                 >
-                  중국어 프리셋
+                  중국어 기본지침
                 </button>
                 <button 
                   onClick={() => setSelectedLang('japanese')} 
                   style={{
                     flex: 1, padding: '8px', borderRadius: '6px', border: 'none',
-                    backgroundColor: selectedLang === 'japanese' ? '#89b4fa' : '#313244',
+                    backgroundColor: selectedLang === 'japanese' ? '#f9e2af' : '#313244',
                     color: selectedLang === 'japanese' ? '#11111b' : '#cdd6f4',
-                    fontWeight: 'bold', cursor: 'pointer'
+                    fontWeight: 'bold', cursor: 'pointer', fontSize: '12px'
                   }}
                 >
-                  일본어 프리셋
+                  일본어 기본지침
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '11px', color: '#a6adc8' }}>
+                  {selectedLang === 'chinese' ? '중국어' : '일본어'} 번역의 기둥이 되는 시스템 지침입니다.
+                </label>
+                <textarea 
+                  rows={6}
+                  value={basePrompts[selectedLang]}
+                  onChange={(e) => handleUpdateBasePrompt(selectedLang, e.target.value)}
+                  placeholder="언어별 기본 번역 지시 규칙을 입력하세요."
+                  style={{
+                    backgroundColor: '#313244', border: 'none', borderRadius: '8px', padding: '10px', color: '#cdd6f4', fontSize: '12px', fontFamily: 'monospace', lineHeight: '1.5'
+                  }}
+                />
+                <span style={{ fontSize: '11px', color: '#f9e2af', textAlign: 'right' }}>* 입력 즉시 임시 자동 저장됩니다.</span>
+              </div>
+            </div>
+
+            {/* 프롬프트 2 (Sub Preset): 프롬프트 템플릿 추가/관리 영역 */}
+            <div style={{ backgroundColor: '#181825', padding: '16px', borderRadius: '14px', border: '1px solid #313244', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <h4 style={{ margin: 0, fontSize: '14px', color: '#cba6f7' }}>📝 2. 작품별 추가 지침 프리셋 (프롬프트 2)</h4>
+              
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button 
+                  onClick={() => setSelectedLang('chinese')} 
+                  style={{
+                    flex: 1, padding: '8px', borderRadius: '6px', border: 'none',
+                    backgroundColor: selectedLang === 'chinese' ? '#cba6f7' : '#313244',
+                    color: selectedLang === 'chinese' ? '#11111b' : '#cdd6f4',
+                    fontWeight: 'bold', cursor: 'pointer', fontSize: '12px'
+                  }}
+                >
+                  중국어 커스텀
+                </button>
+                <button 
+                  onClick={() => setSelectedLang('japanese')} 
+                  style={{
+                    flex: 1, padding: '8px', borderRadius: '6px', border: 'none',
+                    backgroundColor: selectedLang === 'japanese' ? '#cba6f7' : '#313244',
+                    color: selectedLang === 'japanese' ? '#11111b' : '#cdd6f4',
+                    fontWeight: 'bold', cursor: 'pointer', fontSize: '12px'
+                  }}
+                >
+                  일본어 커스텀
                 </button>
               </div>
 
               {/* 현재 등록된 프리셋 리스트 목록 및 삭제 기능 */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <label style={{ fontSize: '12px', color: '#a6adc8' }}>현재 등록된 프리셋</label>
+                <label style={{ fontSize: '12px', color: '#a6adc8' }}>현재 등록된 추가 프리셋</label>
                 {Object.keys(currentPresets).map(presetId => (
                   <div key={presetId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#313244', padding: '8px 12px', borderRadius: '8px' }}>
                     <span style={{ fontSize: '13px' }}>{currentPresets[presetId].name}</span>
@@ -764,7 +887,7 @@ function App() {
 
               {/* 신규 등록 폼 */}
               <div style={{ borderTop: '1px solid #313244', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <label style={{ fontSize: '12px', color: '#a6adc8' }}>새 프롬프트 추가</label>
+                <label style={{ fontSize: '12px', color: '#a6adc8' }}>새 추가 지침 추가</label>
                 <input 
                   type="text" placeholder="예: 코난 덕질용 번역체" 
                   value={newPresetName}
@@ -775,7 +898,7 @@ function App() {
                 />
                 <textarea 
                   rows={3} 
-                  placeholder="Gemini에게 지시할 번역 스타일 본문을 한글/영어로 적어주세요."
+                  placeholder="특정 작품 고유명사 매핑 규칙을 한글/영어로 작성하세요. (예: 江户川柯南 -> 코난)"
                   value={newPresetContent}
                   onChange={(e) => setNewPresetContent(e.target.value)}
                   style={{
@@ -788,7 +911,7 @@ function App() {
                     backgroundColor: '#cba6f7', border: 'none', borderRadius: '8px', padding: '10px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px'
                   }}
                 >
-                  프리셋 추가
+                  추가 지침 프리셋 등록
                 </button>
               </div>
             </div>
