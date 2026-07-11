@@ -20,7 +20,7 @@ const DEFAULT_BASE_PROMPTS = {
 
 [중국어 고유명사 지침]
 - 중화권의 인명은 기본적으로 한국 한자음으로 씁니다. (예: 毛泽东 -> 모택동 / 成龍 -> 성룡 / 周明瑞 -> 주명서 / 小龍女 -> 소용녀)
-- 단, 현대 배경 of 단어가 한국에서 이미 원음 표기로 매우 잘 알려진 경우는 알려진 표기를 따릅니다. (예: 习近平 -> 시진핑 / 北京 -> 베이징 / 上海 -> 상하이)
+- 단, 현대 배경의 단어가 한국에서 이미 원음 표기로 매우 잘 알려진 경우는 알려진 표기를 따릅니다. (예: 习近平 -> 시진핑 / 北京 -> 베이징 / 上海 -> 상하이)
 - 배경이 무협/선협/대체역사 장르의 소설이라면, 중국어 고유명사는 무조건 한국 한자음으로 씁니다. (예: 北京 -> 북경 / 上海 -> 상해 / 北冥神功 -> 북명신공)`,
   japanese: `You are a professional literary translator specializing in translating Japanese light novels and web novels into natural and engaging Korean. Follow these instructions:
 
@@ -92,7 +92,7 @@ function App() {
   const [showThemeCollapse, setShowThemeCollapse] = useState(true);
   const [showMiscCollapse, setShowMiscCollapse] = useState(true);
 
-  // 번역 입력 및 내부 모드 상태 (transMode는 주소 기반 자동 판정되므로 UI에서는 감춤)
+  // 번역 입력 및 내부 모드 상태
   const [inputUrl, setInputUrl] = useState('');
   const [transMode, setTransMode] = useState('viewer'); // 'page' (목록 번역) or 'viewer' (본문 뷰어)
   const [transProgress, setTransProgress] = useState(0);
@@ -191,6 +191,26 @@ function App() {
     return 1;
   };
 
+  // [소설 대표(마스터) 목차 URL 추출 알고리즘 (14단계 핵심)]
+  // 개별 화수 주소에서 화수 번호를 제거하고 공통 소설 카드 식별 주소를 인출합니다.
+  const getNovelMasterUrl = (url) => {
+    if (!url) return '';
+    try {
+      // 52shuku: 예: .../bl/123_2.html -> .../bl/123.html
+      let cleaned = url.replace(/_(\d+)\.html/i, '.html');
+      // jjwxc: 예: .../book2/10860557/1 -> .../book2/10860557
+      cleaned = cleaned.replace(/\/(\d+)\/?$/i, '');
+      // ao3: 예: .../works/123/chapters/456 -> .../works/123
+      cleaned = cleaned.replace(/\/chapters\/(\d+)/i, '');
+      
+      const urlObj = new URL(cleaned);
+      urlObj.searchParams.delete('chapterid');
+      return urlObj.toString();
+    } catch (e) {
+      return url;
+    }
+  };
+
   // 상세 소설 본문 화수 주소인지 감지하는 헬퍼 함수
   const isNovelEpisodeUrl = (url) => {
     if (!url) return false;
@@ -216,9 +236,7 @@ function App() {
     }
   };
 
-  // [출력 모드 및 화수 완전 자동 감지화 (13단계 핵심)]
-  // 유저가 수동으로 판단하여 오류를 낼 수 있는 여지를 원천 배격하기 위해,
-  // 주소를 입력받는 찰나에 본문 주소인지 목록 주소인지 판별하여 transMode를 자동 세팅합니다.
+  // 주소 변경 시 모드 및 화수 자동 동기화
   const handleUrlChange = (e) => {
     const url = e.target.value;
     setInputUrl(url);
@@ -352,12 +370,33 @@ function App() {
         const { title, paragraphs } = extractNovelContent(data.html, targetUrl);
         setViewerTitle(title);
         
-        const novelId = await saveNovel({
-          title,
-          url: targetUrl,
-          site: siteName,
-          lastReadChapter: chapterToUse
-        });
+        // [소설 마스터 키 중복 제거 적재 알고리즘 (14단계)]
+        // 동일 소설이 이미 저장소(novels)에 있는지 제목 또는 대표 목차 URL을 훑어 검색
+        const masterUrl = getNovelMasterUrl(targetUrl);
+        const existingNovel = novels.find(n => n.masterUrl === masterUrl || n.title === title);
+        
+        let novelId;
+        if (existingNovel) {
+          // 이미 존재한다면, 소설 ID를 보존한 채 마지막 읽은 화수와 마지막 읽은 주소만 최신값으로 덮어쓰기 업데이트
+          novelId = existingNovel.id;
+          await saveNovel({
+            ...existingNovel,
+            lastReadChapter: chapterToUse,
+            lastReadUrl: targetUrl,
+            updatedAt: Date.now()
+          });
+        } else {
+          // 신규 소설일 시 신규 등록
+          novelId = await saveNovel({
+            title,
+            masterUrl,
+            url: targetUrl,
+            lastReadUrl: targetUrl,
+            site: siteName,
+            lastReadChapter: chapterToUse,
+            updatedAt: Date.now()
+          });
+        }
         setActiveViewerNovelId(novelId);
 
         const cached = await getEpisode(novelId, chapterToUse);
@@ -415,7 +454,7 @@ function App() {
     }
   };
 
-  // 수동 [번역 시작] 트리거 시, 입력된 URL을 동적으로 최종 분석하여 강제 분기 연동 (사용자 오류 100% 방지)
+  // 수동 [번역 시작] 트리거
   const handleTranslateStart = () => {
     const finalMode = isNovelEpisodeUrl(inputUrl) ? 'viewer' : 'page';
     setTransMode(finalMode);
@@ -465,12 +504,18 @@ function App() {
     }
   };
 
+  // [보관함 마지막 읽은 화수 이어보기 기능 결합]
   const handleLoadNovel = (novel) => {
-    setInputUrl(novel.url);
-    setActiveViewerNovelId(novel.id);
-    setActiveViewerChapter(novel.lastReadChapter || 1);
+    const urlToLoad = novel.lastReadUrl || novel.url; // 마지막 읽었던 화수 주소 우선 로드
+    const chapterToLoad = novel.lastReadChapter || 1;
+
+    setInputUrl(urlToLoad);
     setTransMode('viewer');
+    setActiveViewerChapter(chapterToLoad);
     setActiveTab('translate');
+
+    // 보관함 소설 카드를 누르는 즉시 자동으로 번역 엔진을 구동해 감상창으로 워프합니다!
+    triggerTranslationFlow(urlToLoad, 'viewer', chapterToLoad);
   };
 
   const handleClearCache = async () => {
@@ -596,7 +641,7 @@ function App() {
                     </h4>
                     <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
                       <span style={{ backgroundColor: '#313244', padding: '2px 6px', borderRadius: '4px', color: '#89b4fa' }}>{novel.site}</span>
-                      <span style={{ color: '#a6adc8' }}>마지막 화: {novel.lastReadChapter}화</span>
+                      <span style={{ color: '#a6adc8' }}>마지막으로 읽은 회차: {novel.lastReadChapter}화</span>
                     </div>
                   </div>
                   
@@ -682,8 +727,6 @@ function App() {
                 </select>
               </div>
             </div>
-
-            {/* 출력 모드 셀렉트 박스 완전 철거 완료 (유저 피드백 반영: 입력된 URL 패턴에 기초하여 출력 모드를 지능형 완전 자동 판정) */}
 
             {/* 번역 기동 버튼 */}
             <button 
