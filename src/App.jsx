@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, Settings, FolderHeart, Star, Trash2, Plus, Download, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { BookOpen, Settings, FolderHeart, Star, Trash2, Plus, Download, RefreshCw, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { openDB, saveNovel, getNovels, deleteNovel, saveEpisode, getEpisode, clearOldEpisodes, getCacheStatistics } from './db.js';
 import { getApiKeys, saveApiKeys, getActiveApiKey, fetchAvailableModels, translateTextWithRotation, translateTextStreamWithRotation } from './apiRotator.js';
 import { getPromptsTree, savePreset, deletePreset, getPromptContent } from './promptManager.js';
@@ -715,7 +715,7 @@ function App() {
     }
 
     const confirmReport = window.confirm(
-      "현재 뷰어 화면의 번역 결과(원본 문장, 번역문, 소설 주소, 번역 모델 등)를 개발자(Antigravity)에게 피드백으로 전송하시겠습니까?\n\n*개인 API Key 등의 정보는 절대 포함되지 않으며 익명으로 안전하게 전송됩니다."
+      "현재 뷰어 화면의 번역 결과(원본 문장, 번역문, 소설 주소, 번역 모델 등)를 개발자에게 피드백으로 전송하시겠습니까?\n\n*개인 API Key 등의 정보는 절대 포함되지 않으며 익명으로 안전하게 전송됩니다."
     );
     if (!confirmReport) return;
 
@@ -1079,16 +1079,23 @@ function App() {
                   ← 주소 입력창으로
                 </button>
                 <button 
-                  onClick={() => setActiveTab('library')}
-                  style={{ background: '#222822', border: 'none', color: '#e2e4ed', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
-                >
-                  ← 보관함으로
-                </button>
-                <button 
                   onClick={handleReportFeedback}
-                  style={{ background: '#222822', border: '1px solid #ea999c', color: '#ea999c', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                  style={{ 
+                    background: '#222822', 
+                    border: '1px solid #ea999c', 
+                    color: '#ea999c', 
+                    padding: '6px 12px', 
+                    borderRadius: '6px', 
+                    cursor: 'pointer', 
+                    fontSize: '12px', 
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
                 >
-                  개발자에게 신고
+                  <AlertTriangle size={14} />
+                  오류 제보
                 </button>
                 {!isTranslating && (
                   <button 
@@ -1106,7 +1113,7 @@ function App() {
                       fontWeight: 'bold'
                     }}
                   >
-                    다시 번역하기
+                    번역 시작
                   </button>
                 )}
               </div>

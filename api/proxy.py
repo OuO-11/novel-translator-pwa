@@ -125,16 +125,21 @@ def report_feedback():
                 print(f"[GitHub Upload Failed] Status: {res.status_code}, Body: {res.text}")
                 return jsonify({"status": "logged_fallback", "error": res.text}), 200
         else:
-            print("⚠️ [GitHub Token Missing] Writing feedback to local directory.")
-            try:
-                local_dir = os.path.join(os.path.dirname(__file__), "..", "feedback")
-                os.makedirs(local_dir, exist_ok=True)
-                with open(os.path.join(local_dir, f"report_{timestamp}.json"), 'w', encoding='utf-8') as f:
-                    f.write(json_content)
-                return jsonify({"status": "submitted", "destination": "local"}), 200
-            except Exception as le:
-                print(f"[Local Write Failed] Error: {str(le)}")
-                return jsonify({"status": "logged_console", "error": str(le)}), 200
+            print("⚠️ [GitHub Token Missing] Writing feedback to console/local directory.")
+            is_vercel = os.environ.get('VERCEL') == '1'
+            if not is_vercel:
+                try:
+                    local_dir = os.path.join(os.path.dirname(__file__), "..", "feedback")
+                    os.makedirs(local_dir, exist_ok=True)
+                    with open(os.path.join(local_dir, f"report_{timestamp}.json"), 'w', encoding='utf-8') as f:
+                        f.write(json_content)
+                    return jsonify({"status": "submitted", "destination": "local"}), 200
+                except Exception as le:
+                    print(f"[Local Write Failed] Error: {str(le)}")
+            
+            # Vercel 환경 및 파일 쓰기 권한이 없는 환경에서는 콘솔 덤프 로깅 후 정상 응답 반환
+            print(json_content)
+            return jsonify({"status": "submitted", "destination": "console"}), 200
                 
     except Exception as e:
         print(f"[report_feedback error] Exception: {str(e)}")
