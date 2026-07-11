@@ -109,6 +109,10 @@ export function extractNovelContent(rawHtml, url) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(rawHtml, 'text/html');
   
+  // 26단계 핵심: 파싱 시작 시점에 스타일시트(style) 및 스크립트(script) 노드를 DOM 트리에서 원천 제거
+  const trashNodes = doc.querySelectorAll('script, style, link, meta, iframe, ins, noscript');
+  trashNodes.forEach(t => t.remove());
+  
   let title = doc.querySelector('title')?.textContent?.trim() || '제목 없음';
   let contentHtml = '';
 
@@ -141,9 +145,18 @@ export function extractNovelContent(rawHtml, url) {
       contentHtml = article.innerHTML;
     }
   } else if (url.includes('jjwxc')) {
-    // 진강문학성은 <div id="novelcontent"> 또는 <td> 안에 본문이 들어있음
-    const contentArea = doc.querySelector('#novelcontent') || doc.querySelector('.novelcontent');
+    // 진강문학성은 PC 버전 <div id="novelcontent">, 모바일 버전 .noveltext, .novelcontent, #content, <td> 등에 들어있음
+    const contentArea = doc.querySelector('#novelcontent') || 
+                        doc.querySelector('.novelcontent') || 
+                        doc.querySelector('.noveltext') || 
+                        doc.querySelector('#content') ||
+                        doc.querySelector('td.noveltext');
     if (contentArea) {
+      // 본문 영역 내의 불필요한 내비게이션 노드(이전화/다음화/돌아가기 링크 등) 원천 소거
+      const navSelects = ['.nav', '.novel_nav', 'a', 'style', 'script'];
+      navSelects.forEach(sel => {
+        contentArea.querySelectorAll(sel).forEach(el => el.remove());
+      });
       contentHtml = contentArea.innerHTML;
     }
   } else if (url.includes('archiveofourown') || url.includes('ao3')) {
