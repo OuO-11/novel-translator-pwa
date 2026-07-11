@@ -1039,9 +1039,7 @@ function App() {
                 {!isTranslating && (
                   <button 
                     onClick={() => {
-                      if (window.confirm("기존 번역 캐시를 삭제하고 이 화수를 처음부터 다시 AI 번역하시겠습니까?")) {
-                        triggerTranslationFlow(inputUrl, 'viewer', activeViewerChapter, true);
-                      }
+                      triggerTranslationFlow(inputUrl, 'viewer', activeViewerChapter, true);
                     }}
                     style={{ 
                       background: 'linear-gradient(135deg, #ca9ee6, #ea999c)', 
