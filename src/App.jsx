@@ -415,7 +415,21 @@ function App() {
         setActiveTab('pageResult');
       } else {
         const { title, paragraphs, prevUrl, nextUrl, indexUrl } = extractNovelContent(data.html, targetUrl);
-        setViewerTitle(title);
+        
+        // 21단계 핵심: 소설 제목 한글 자동 번역 및 한글/원문 대조 병기 합성
+        let translatedTitle = title;
+        try {
+          translatedTitle = await translateTextWithRotation(
+            title, 
+            "Translate this novel title into natural, clean Korean. Return ONLY the translated Korean text without any other explanations or punctuation.", 
+            selectedModel
+          );
+        } catch (e) {
+          console.warn("Title translation fallback:", e);
+        }
+        
+        const combinedTitle = `${translatedTitle.trim()} / ${title.trim()}`;
+        setViewerTitle(combinedTitle);
         setViewerPrevUrl(prevUrl || '');
         setViewerNextUrl(nextUrl || '');
         setViewerIndexUrl(indexUrl || '');
@@ -423,7 +437,7 @@ function App() {
         // [소설 마스터 키 중복 제거 적재 알고리즘 (14단계)]
         // 동일 소설이 이미 저장소(novels)에 있는지 제목 또는 대표 목차 URL을 훑어 검색
         const masterUrl = getNovelMasterUrl(targetUrl);
-        const existingNovel = novels.find(n => n.masterUrl === masterUrl || n.title === title);
+        const existingNovel = novels.find(n => n.masterUrl === masterUrl || n.title === combinedTitle || n.title === title);
         
         let novelId;
         if (existingNovel) {
@@ -436,9 +450,9 @@ function App() {
             updatedAt: Date.now()
           });
         } else {
-          // 신규 소설일 시 신규 등록
+          // 신규 소설일 시 신규 등록 (합성 병기된 제목 저장)
           novelId = await saveNovel({
-            title,
+            title: combinedTitle,
             masterUrl,
             url: targetUrl,
             lastReadUrl: targetUrl,
