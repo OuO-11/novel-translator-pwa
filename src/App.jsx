@@ -1377,7 +1377,7 @@ function App() {
                 <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
                   
                   {/* 인풋 스타일 컨트롤 Grid */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <label style={{ fontSize: '11px', color: '#a5adce' }}>폰트 종류 (css)</label>
                       <input 
