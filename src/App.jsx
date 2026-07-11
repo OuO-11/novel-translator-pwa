@@ -843,8 +843,15 @@ function App() {
         </header>
       )}
 
-      {/* 본문 콘텐츠 */}
-      <main style={{ flex: 1, padding: '20px', maxWidth: '650px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+      {/* 본문 콘텐츠: pageResult 탭에서는 여백 없이 full-width, 그 외에는 중앙 정렬 패딩 유지 */}
+      <main style={{ 
+        flex: 1, 
+        padding: activeTab === 'pageResult' ? '0' : '20px', 
+        maxWidth: activeTab === 'pageResult' ? '100%' : '650px', 
+        margin: '0 auto', 
+        width: '100%', 
+        boxSizing: 'border-box' 
+      }}>
         
         {/* 탭 1: 보관함 (Library) */}
         {activeTab === 'library' && (
@@ -1257,29 +1264,40 @@ function App() {
           </div>
         )}
 
-        {/* 탭 4: 목록 번역 결과 렌더링 (PageResult) */}
+        {/* 탭 4: 목록 번역 결과 렌더링 (PageResult) — 36단계: 여백 없이 풀스크린 개편 */}
         {activeTab === 'pageResult' && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '80vh' }}>
-            <div style={{ padding: '8px 0', display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 112px)' }}>
+            {/* 상단 미니 헤더 바 */}
+            <div style={{ 
+              padding: '6px 12px', 
+              display: 'flex', 
+              gap: '8px', 
+              alignItems: 'center',
+              backgroundColor: '#111311',
+              borderBottom: '1px solid #222822',
+              flexShrink: 0
+            }}>
               <button 
                 onClick={() => setActiveTab('translate')}
-                style={{ background: '#252630', border: 'none', color: '#e2e4ed', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
+                style={{ background: '#252630', border: 'none', color: '#e2e4ed', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap' }}
               >
-                ← 번역창으로
+                ← 번역창
               </button>
-              <span style={{ fontSize: '13px', color: '#a6d189', display: 'flex', alignItems: 'center' }}>✓ 목록 번역 완료 (레이아웃 보존)</span>
-              {isTranslating && <span style={{ fontSize: '12px', color: '#ca9ee6', marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>🔄 신규 페이지 백그라운드 번역 중... ({transProgress}%)</span>}
+              <span style={{ fontSize: '12px', color: '#a6d189' }}>✓ 목록 번역 완료</span>
+              {isTranslating && <span style={{ fontSize: '11px', color: '#ca9ee6', marginLeft: 'auto' }}>🔄 번역 중... ({transProgress}%)</span>}
             </div>
+            {/* iframe — 여백 없이 풀스크린 */}
             <iframe 
               srcDoc={novelHtmlResult}
               title="Page Translation Result"
               onLoad={handleIframeLoad}
               style={{
                 flex: 1,
-                border: '1px solid #252630',
-                borderRadius: '12px',
+                border: 'none',
+                borderRadius: 0,
                 backgroundColor: '#ffffff',
-                width: '100%'
+                width: '100%',
+                display: 'block'
               }}
             />
           </div>

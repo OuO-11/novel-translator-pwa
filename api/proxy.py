@@ -17,10 +17,18 @@ def proxy():
         return jsonify({"error": "Missing URL parameter"}), 400
 
     # 보안 및 차단 우회를 위한 헤더 기획
+    # [36단계] 도메인별 언어 헤더 지능형 분기: 일본 사이트는 ja 우선, 중국 사이트는 zh 우선, 그 외 ko 우선
+    if any(d in url for d in ['pixiv', 'syosetu', 'kakuyomu', 'fanfiction', 'narou']):
+        accept_lang = 'ja-JP,ja;q=0.9,en;q=0.8'
+    elif any(d in url for d in ['jjwxc', '52shuku', 'qidian', 'zongheng', 'shu']):
+        accept_lang = 'zh-CN,zh;q=0.9,en;q=0.8'
+    else:
+        accept_lang = 'ko-KR,ko;q=0.9,en;q=0.8'
+
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8,ko;q=0.7',
+        'Accept-Language': accept_lang,
     }
 
     # 도메인별 Referer 조율 (CORS 우회 및 이미지 로딩 보장)
@@ -32,6 +40,8 @@ def proxy():
         headers['Referer'] = 'https://archiveofourown.org/'
     elif 'pixiv' in url:
         headers['Referer'] = 'https://www.pixiv.net/'
+        # pixiv 로그인 우회를 위한 추가 쿠키 및 설정
+        headers['sec-fetch-mode'] = 'navigate'
 
     try:
         # 타겟 사이트 소스 긁어오기 (타임아웃 10초)
