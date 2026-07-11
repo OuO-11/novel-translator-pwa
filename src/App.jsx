@@ -406,35 +406,6 @@ function App() {
     getCacheStatistics().then(setCacheStats);
   };
 
-  // 신규 프롬프트 프리셋 직접 추가 기능
-  const handleAddCustomPreset = () => {
-    if (!newPresetName || !newPresetContent) {
-      return alert('프리셋 이름과 프롬프트 본문을 입력해 주세요.');
-    }
-    const presetId = 'custom_' + Date.now();
-    try {
-      const updatedTree = savePreset(selectedLang, presetId, newPresetName, newPresetContent);
-      setPromptsTree(updatedTree);
-      setSelectedPreset(presetId);
-      setNewPresetName('');
-      setNewPresetContent('');
-      alert('새로운 프롬프트 템플릿이 성공적으로 저장되었습니다!');
-    } catch (e) {
-      alert(e.message);
-    }
-  };
-
-  // 프롬프트 프리셋 삭제 기능
-  const handleDeletePreset = (presetId) => {
-    if (presetId === 'default') {
-      return alert('기본 프리셋은 삭제할 수 없습니다.');
-    }
-    if (window.confirm('이 프롬프트 프리셋을 삭제하시겠습니까?')) {
-      const updatedTree = deletePreset(selectedLang, presetId);
-      setPromptsTree(updatedTree);
-      setSelectedPreset('default');
-    }
-  };
 
   // 소설 삭제
   const handleDeleteNovel = async (id, title, e) => {
