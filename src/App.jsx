@@ -871,26 +871,28 @@ function App() {
               flexDirection: 'column',
               gap: `${readerSettings.paragraphGap}px`
             }}>
-              {viewerParagraphs.map((p, idx) => (
-                <div key={idx} style={{ 
-                  textIndent: `${readerSettings.textIndent}em`
-                }}>
-                  {/* 번역문 출력 */}
-                  <p style={{ margin: 0, color: readerSettings.fontColor }}>{p.translated}</p>
-                  
-                  {/* 원문 출력 (한자/일본어 병기 유지 스위치가 켜진 경우에만 렌더링) */}
-                  {readerSettings.keepOriginalText && p.original && (
-                    <p style={{ 
-                      margin: '6px 0 0 0', 
-                      color: readerSettings.fontColor, 
-                      fontSize: '0.85em', 
-                      opacity: readerSettings.opacity / 100 
-                    }}>
-                      {p.original}
-                    </p>
-                  )}
-                </div>
-              ))}
+              {viewerParagraphs
+                .filter(p => p.translated !== 'AI 번역 대기 중...' && p.translated !== 'AI 번역 가동 중...')
+                .map((p, idx) => (
+                  <div key={idx} style={{ 
+                    textIndent: `${readerSettings.textIndent}em`
+                  }}>
+                    {/* 번역문 출력 */}
+                    <p style={{ margin: 0, color: readerSettings.fontColor }}>{p.translated}</p>
+                    
+                    {/* 원문 출력 (한자/일본어 병기 유지 스위치가 켜진 경우에만 렌더링) */}
+                    {readerSettings.keepOriginalText && p.original && (
+                      <p style={{ 
+                        margin: '6px 0 0 0', 
+                        color: readerSettings.fontColor, 
+                        fontSize: '0.85em', 
+                        opacity: readerSettings.opacity / 100 
+                      }}>
+                        {p.original}
+                      </p>
+                    )}
+                  </div>
+                ))}
             </div>
           </div>
         )}
