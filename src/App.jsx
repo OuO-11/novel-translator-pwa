@@ -743,7 +743,10 @@ function App() {
         body: JSON.stringify(payload)
       });
 
-      if (!res.ok) throw new Error('서버 응답 오류');
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        throw new Error(`서버 응답 오류 (Status: ${res.status}, Body: ${errorText || '없음'})`);
+      }
       const resData = await res.json();
       
       if (resData.status === 'submitted') {
