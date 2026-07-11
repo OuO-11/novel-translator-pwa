@@ -55,6 +55,41 @@ export function getActiveApiKey() {
 }
 
 /**
+ * 구글 API를 조회하여 사용 가능한 무료 Tier 권장 AI 모델 목록을 긁어옵니다.
+ * @param {string} apiKey 사용할 API Key
+ */
+export async function fetchAvailableModels(apiKey) {
+  if (!apiKey) return [];
+  const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('모델 목록을 조회하지 못했습니다.');
+    const data = await res.json();
+    
+    if (!data.models) return [];
+
+    // 1. generateContent 지원 및 2. 무료 Tier 성격인 flash/lite 모델만 화이트리스트 필터링
+    const filtered = data.models
+      .filter(m => {
+        const name = m.name.toLowerCase();
+        const supportsGen = m.supportedGenerationMethods?.includes('generateContent');
+        const isFreeTier = name.includes('flash') || name.includes('lite');
+        return supportsGen && isFreeTier;
+      })
+      .map(m => {
+        // 'models/gemini-3.1-flash-lite' 형식에서 'models/' 접두어 떼기 (선택창 가시성을 위함)
+        return m.name.replace(/^models\//, '');
+      });
+
+    return filtered;
+  } catch (err) {
+    console.error('[fetchAvailableModels Error] Fallback to cache:', err);
+    return [];
+  }
+}
+
+/**
  * 구글 Gemini API를 호출하여 번역을 수행합니다. (키 로테이션 및 재시도 기능 탑재)
  * @param {string} textToTranslate 번역할 소설 원문
  * @param {string} systemInstruction 번역에 적용할 상세 프롬프트 (시스템 지시어)

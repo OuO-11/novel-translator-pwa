@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings, FolderHeart, Star, Trash2, Plus, Download, RefreshCw, Eye, EyeOff } from 'lucide-react';
 import { openDB, saveNovel, getNovels, deleteNovel, saveEpisode, getEpisode, clearOldEpisodes, getCacheStatistics } from './db.js';
-import { getApiKeys, saveApiKeys, getActiveApiKey } from './apiRotator.js';
+import { getApiKeys, saveApiKeys, getActiveApiKey, fetchAvailableModels } from './apiRotator.js';
 import { getPromptsTree, savePreset, getPromptContent } from './promptManager.js';
 import { translateFullPage, extractNovelContent } from './parser.js';
 import { downloadCachedEpisodes } from './downloader.js';
@@ -13,6 +13,11 @@ function App() {
 
   // 설정 상태
   const [apiKeysInput, setApiKeysInput] = useState('');
+  const [availableModels, setAvailableModels] = useState(() => {
+    // 1안 스펙: 로컬스토리지 캐시 우선 로드 (없다면 유저 지적 모델 gemini-3.1-flash-lite 기본값 제공)
+    const cached = localStorage.getItem('noveltrans_cached_models');
+    return cached ? JSON.parse(cached) : ['gemini-3.1-flash-lite'];
+  });
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-lite');
   const [promptsTree, setPromptsTree] = useState({});
   const [selectedLang, setSelectedLang] = useState('chinese');
@@ -34,7 +39,7 @@ function App() {
   const [activeViewerNovelId, setActiveViewerNovelId] = useState(null);
   const [activeViewerChapter, setActiveViewerChapter] = useState(1);
 
-  // 1. 초기 로드
+  // 1. 초기 로드 및 모델 목록 캐시 동기화
   useEffect(() => {
     async function init() {
       try {
@@ -43,7 +48,8 @@ function App() {
         setNovels(list);
         
         // API Key 로드
-        setApiKeysInput(getApiKeys().join('\n'));
+        const keys = getApiKeys();
+        setApiKeysInput(keys.join('\n'));
         
         // 프롬프트 로드
         setPromptsTree(getPromptsTree());
@@ -51,6 +57,11 @@ function App() {
         // 통계 로드
         const stats = await getCacheStatistics();
         setCacheStats(stats);
+
+        // 첫 번째 API Key를 활용하여 구글 ListModels API 백그라운드 캐시 최신화 (1안 방식)
+        if (keys.length > 0) {
+          loadModels(keys[0]);
+        }
       } catch (e) {
         console.error('Init error:', e);
       } finally {
@@ -60,11 +71,31 @@ function App() {
     init();
   }, []);
 
-  // API Key 저장
-  const handleSaveSettings = () => {
+  // API 호출을 통해 사용 가능한 모델 목록 갱신 및 캐싱
+  const loadModels = async (key) => {
+    if (!key) return;
+    const fetchedList = await fetchAvailableModels(key);
+    if (fetchedList && fetchedList.length > 0) {
+      setAvailableModels(fetchedList);
+      localStorage.setItem('noveltrans_cached_models', JSON.stringify(fetchedList));
+      // 만약 기존에 선택했던 모델이 새 리스트에 없으면 첫 번째 모델로 세팅
+      if (!fetchedList.includes(selectedModel)) {
+        setSelectedModel(fetchedList[0]);
+      }
+    }
+  };
+
+  // API Key 저장 및 모델 목록 리프레시
+  const handleSaveSettings = async () => {
     const keys = apiKeysInput.split('\n').map(k => k.trim()).filter(k => k.length > 0);
     saveApiKeys(keys);
-    alert('설정이 성공적으로 저장되었습니다!');
+    alert('설정이 저장되었습니다. 입력하신 API Key로 최신 구글 무료 제공 모델 조회를 수행합니다.');
+    
+    // 저장과 동시에 모델 목록 동적 갱신 작동
+    if (keys.length > 0) {
+      await loadModels(keys[0]);
+    }
+    
     getCacheStatistics().then(setCacheStats);
   };
 
@@ -521,7 +552,7 @@ function App() {
               />
             </div>
 
-            {/* AI 모델 설정 */}
+            {/* AI 모델 설정 - 1안 스펙으로 동적 바인딩 렌더링 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: '#a6adc8' }}>사용할 AI 모델 (무료 Tier 권장)</label>
               <select 
@@ -531,9 +562,11 @@ function App() {
                   backgroundColor: '#181825', border: '1px solid #313244', borderRadius: '10px', padding: '12px', color: '#cdd6f4'
                 }}
               >
-                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (최신 권장)</option>
-                <option value="gemini-1.5-flash">gemini-1.5-flash (구버전)</option>
-                <option value="gemini-1.5-flash-8b">gemini-1.5-flash-8b (경량)</option>
+                {availableModels.map(model => (
+                  <option key={model} value={model}>
+                    {model} {model === 'gemini-3.1-flash-lite' ? '(최신 권장)' : ''}
+                  </option>
+                ))}
               </select>
             </div>
 
