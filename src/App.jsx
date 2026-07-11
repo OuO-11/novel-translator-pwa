@@ -708,6 +708,54 @@ function App() {
     }
   };
 
+  const handleReportFeedback = async () => {
+    if (viewerParagraphs.length === 0) {
+      alert('현재 감상 중인 소설 텍스트가 존재하지 않아 신고할 수 없습니다.');
+      return;
+    }
+
+    const confirmReport = window.confirm(
+      "현재 뷰어 화면의 번역 결과(원본 문장, 번역문, 소설 주소, 번역 모델 등)를 개발자(Antigravity)에게 피드백으로 전송하시겠습니까?\n\n*개인 API Key 등의 정보는 절대 포함되지 않으며 익명으로 안전하게 전송됩니다."
+    );
+    if (!confirmReport) return;
+
+    try {
+      const payload = {
+        time: new Date().toISOString(),
+        timestamp: Date.now().toString(),
+        url: inputUrl,
+        model: selectedModel,
+        title: viewerTitle,
+        chapter: activeViewerChapter,
+        paragraphsCount: viewerParagraphs.length,
+        paragraphs: viewerParagraphs.map(p => ({
+          original: p.original || '',
+          translated: p.translated || ''
+        })),
+        userAgent: navigator.userAgent
+      };
+
+      const res = await fetch('/api/report_feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) throw new Error('서버 응답 오류');
+      const resData = await res.json();
+      
+      if (resData.status === 'submitted') {
+        alert('피드백이 성공적으로 제출되었습니다. 감사합니다!');
+      } else {
+        alert('피드백 전송 완료 (로컬 기록됨)');
+      }
+    } catch (err) {
+      alert('피드백 전송 도중 에러가 발생했습니다: ' + err.message);
+    }
+  };
+
   if (isLoading) {
     return (
       <div style={{
@@ -1019,8 +1067,8 @@ function App() {
               </div>
             )}
 
-            <div style={{ borderBottom: '1px solid #252630', paddingBottom: '12px' }}>
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+            <div style={{ borderBottom: '1px solid #222822', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
                 <button 
                   onClick={() => {
                     setLastTranslateSubTab('translate');
@@ -1035,6 +1083,12 @@ function App() {
                   style={{ background: '#222822', border: 'none', color: '#e2e4ed', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
                 >
                   ← 보관함으로
+                </button>
+                <button 
+                  onClick={handleReportFeedback}
+                  style={{ background: '#222822', border: '1px solid #ea999c', color: '#ea999c', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                >
+                  개발자에게 신고
                 </button>
                 {!isTranslating && (
                   <button 

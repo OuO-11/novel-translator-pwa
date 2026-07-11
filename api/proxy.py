@@ -1,4 +1,7 @@
 import re
+import os
+import json
+import base64
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -78,7 +81,65 @@ def log_error():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/report_feedback', methods=['POST'])
+def report_feedback():
+    try:
+        data = request.json or {}
+        
+        # 보안 규칙: 개인 API Key가 절대 유출되지 않도록 전송 객체에서 강제 소거
+        data.pop('api_key', None)
+        data.pop('apiKeys', None)
+        data.pop('keys', None)
+
+        github_token = os.environ.get('NOVELTRANS_GITHUB_TOKEN') or os.environ.get('GITHUB_TOKEN')
+        repo_owner = "OuO-11"
+        repo_name = "novel-translator-pwa"
+        
+        timestamp = data.get('timestamp') or re.sub(r'[^0-9]', '', data.get('time', ''))[:14]
+        if not timestamp:
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+            
+        file_path = f"feedback/report_{timestamp}.json"
+        commit_message = f"bug: report translation feedback for {data.get('url', 'novel')}"
+        
+        json_content = json.dumps(data, ensure_ascii=False, indent=2)
+        
+        if github_token:
+            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
+            headers = {
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            encoded_content = base64.b64encode(json_content.encode('utf-8')).decode('utf-8')
+            
+            payload = {
+                "message": commit_message,
+                "content": encoded_content
+            }
+            
+            res = requests.put(url, headers=headers, json=payload, timeout=10)
+            if res.status_code in [200, 201]:
+                return jsonify({"status": "submitted", "destination": "github"}), 200
+            else:
+                print(f"[GitHub Upload Failed] Status: {res.status_code}, Body: {res.text}")
+                return jsonify({"status": "logged_fallback", "error": res.text}), 200
+        else:
+            print("⚠️ [GitHub Token Missing] Writing feedback to local directory.")
+            try:
+                local_dir = os.path.join(os.path.dirname(__file__), "..", "feedback")
+                os.makedirs(local_dir, exist_ok=True)
+                with open(os.path.join(local_dir, f"report_{timestamp}.json"), 'w', encoding='utf-8') as f:
+                    f.write(json_content)
+                return jsonify({"status": "submitted", "destination": "local"}), 200
+            except Exception as le:
+                print(f"[Local Write Failed] Error: {str(le)}")
+                return jsonify({"status": "logged_console", "error": str(le)}), 200
+                
+    except Exception as e:
+        print(f"[report_feedback error] Exception: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 # Vercel Serverless 실행을 위해 app 인스턴스 서빙
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
-
