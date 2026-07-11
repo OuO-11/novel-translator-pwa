@@ -117,14 +117,27 @@ export function extractNovelContent(rawHtml, url) {
     // 52shuku는 대개 <article class="article-content"> 또는 <div class="article-content"> 내에 본문이 존재함
     const article = doc.querySelector('.article-content') || doc.querySelector('article');
     if (article) {
-      // 본문 하단의 광고 및 이전/다음 버튼 영역 삭제
-      const ads = article.querySelectorAll('.ad, .read-ad, a');
-      ads.forEach(ad => {
-        // 단, 본문 텍스트 내의 다른 태그는 냅두고 명백한 광고/링크만 삭제
-        if (ad.href && (ad.href.includes('prev') || ad.href.includes('next') || ad.href.includes('page'))) {
-          ad.remove();
+      // 22단계 영역정정: 하단 내비게이션 및 광고 컨테이너 영역(DOM Element) 자체를 지목해 통째로 소거
+      const targetSelectors = ['.read-page', '.page-link', '.book-page', '.pages', '.ad', '.read-ad'];
+      targetSelectors.forEach(sel => {
+        const els = article.querySelectorAll(sel);
+        els.forEach(el => el.remove());
+      });
+
+      // 내비게이션 텍스트가 명백히 포함된 하단부 엘리먼트 영역 추가 소거
+      const navElements = article.querySelectorAll('p, div');
+      navElements.forEach(el => {
+        const text = el.textContent?.trim() || '';
+        if (
+          (text.includes('上一页') && text.includes('下一页')) ||
+          (text.includes('이전 페이지') && text.includes('다음 페이지')) ||
+          (text.includes('목차') && text.includes('다음화')) ||
+          (text.includes('目录') && text.includes('下一章'))
+        ) {
+          el.remove();
         }
       });
+
       contentHtml = article.innerHTML;
     }
   } else if (url.includes('jjwxc')) {

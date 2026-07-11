@@ -373,7 +373,7 @@ function App() {
   };
 
   // 실시간 번역 공통 구동 코어 함수
-  const triggerTranslationFlow = async (targetUrl, targetMode, forceChapter = null) => {
+  const triggerTranslationFlow = async (targetUrl, targetMode, forceChapter = null, bypassCache = false) => {
     const activeKey = getActiveApiKey();
     if (!activeKey) {
       alert('API Key를 먼저 설정에서 1개 이상 등록해 주세요.');
@@ -463,7 +463,7 @@ function App() {
         }
         setActiveViewerNovelId(novelId);
 
-        const cached = await getEpisode(novelId, chapterToUse);
+        const cached = bypassCache ? null : await getEpisode(novelId, chapterToUse);
         if (cached) {
           const parsedLines = JSON.parse(cached.translatedText);
           const origLines = JSON.parse(cached.originalText || '[]');
@@ -656,33 +656,35 @@ function App() {
       color: '#e2e4ed',
       fontFamily: 'system-ui, -apple-system, sans-serif'
     }}>
-      {/* 헤더 */}
-      <header style={{
-        display: 'flex',
-        alignItems: 'center',
-        padding: '16px 20px',
-        borderBottom: '1px solid #252630',
-        backgroundColor: '#121212',
-        position: 'sticky',
-        top: 0,
-        zIndex: 10
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{
-            background: 'linear-gradient(135deg, #babbf1, #ca9ee6)',
-            padding: '8px',
-            borderRadius: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            <BookOpen size={24} color="#11111b" />
+      {/* 헤더 (22단계: 뷰어 화면 진입 시 헤더를 숨겨 겹침 현상 해소 및 꽉 찬 화면 지원) */}
+      {activeTab !== 'viewer' && (
+        <header style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '16px 20px',
+          borderBottom: '1px solid #252630',
+          backgroundColor: '#121212',
+          position: 'sticky',
+          top: 0,
+          zIndex: 10
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              background: 'linear-gradient(135deg, #babbf1, #ca9ee6)',
+              padding: '8px',
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <BookOpen size={24} color="#11111b" />
+            </div>
+            <span style={{ fontSize: '20px', fontWeight: 'bold', letterSpacing: '-0.5px' }}>
+              Novel<span style={{ color: '#babbf1' }}>Trans</span>
+            </span>
           </div>
-          <span style={{ fontSize: '20px', fontWeight: 'bold', letterSpacing: '-0.5px' }}>
-            Novel<span style={{ color: '#babbf1' }}>Trans</span>
-          </span>
-        </div>
-      </header>
+        </header>
+      )}
 
       {/* 본문 콘텐츠 */}
       <main style={{ flex: 1, padding: '20px', maxWidth: '650px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
@@ -921,12 +923,35 @@ function App() {
             )}
 
             <div style={{ borderBottom: '1px solid #252630', paddingBottom: '12px' }}>
-              <button 
-                onClick={() => setActiveTab('library')}
-                style={{ background: '#252630', border: 'none', color: '#e2e4ed', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', marginBottom: '8px' }}
-              >
-                ← 보관함으로
-              </button>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                <button 
+                  onClick={() => setActiveTab('library')}
+                  style={{ background: '#252630', border: 'none', color: '#e2e4ed', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
+                >
+                  ← 보관함으로
+                </button>
+                {!isTranslating && (
+                  <button 
+                    onClick={() => {
+                      if (window.confirm("기존 번역 캐시를 삭제하고 이 화수를 처음부터 다시 AI 번역하시겠습니까?")) {
+                        triggerTranslationFlow(inputUrl, 'viewer', activeViewerChapter, true);
+                      }
+                    }}
+                    style={{ 
+                      background: 'linear-gradient(135deg, #ca9ee6, #ea999c)', 
+                      border: 'none', 
+                      color: '#11111b', 
+                      padding: '6px 12px', 
+                      borderRadius: '6px', 
+                      cursor: 'pointer', 
+                      fontSize: '12px',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    다시 번역하기
+                  </button>
+                )}
+              </div>
               <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#babbf1' }}>{viewerTitle}</h2>
               <div style={{ display: 'flex', gap: '10px', fontSize: '12px', color: '#a5adce', marginTop: '6px' }}>
                 <span>제 {activeViewerChapter}화 감상 중</span>
