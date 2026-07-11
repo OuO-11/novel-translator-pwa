@@ -98,6 +98,7 @@ function App() {
   const [transMode, setTransMode] = useState('viewer'); // 'page' (목록 번역) or 'viewer' (본문 뷰어)
   const [transProgress, setTransProgress] = useState(0);
   const [isTranslating, setIsTranslating] = useState(false);
+  const cancelTranslationRef = useRef(false);
 
   // 뷰어 및 렌더링 상태
   const [viewerTitle, setViewerTitle] = useState('');
@@ -381,6 +382,7 @@ function App() {
     }
 
     setIsTranslating(true);
+    cancelTranslationRef.current = false;
     setTransProgress(5);
     setNovelHtmlResult('');
     setViewerParagraphs([]);
@@ -469,6 +471,9 @@ function App() {
             : basePrompt;
 
           for (let i = 0; i < paragraphs.length; i++) {
+            if (cancelTranslationRef.current) {
+              throw new Error('사용자에 의해 번역이 강제 중단되었습니다.');
+            }
             const orig = paragraphs[i];
             
             setViewerParagraphs(prev => {
@@ -825,6 +830,32 @@ function App() {
                 '번역 시작'
               )}
             </button>
+
+            {isTranslating && (
+              <button 
+                onClick={() => {
+                  cancelTranslationRef.current = true;
+                  alert('번역 중단을 요청했습니다. 현재 문단까지만 완료 후 안전하게 정지됩니다.');
+                }}
+                style={{
+                  backgroundColor: '#e78284',
+                  border: 'none',
+                  borderRadius: '12px',
+                  padding: '12px',
+                  color: '#11111b',
+                  fontWeight: 'bold',
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  marginTop: '8px'
+                }}
+              >
+                번역 즉시 중지
+              </button>
+            )}
           </div>
         )}
 
@@ -852,9 +883,26 @@ function App() {
               }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <RefreshCw style={{ animation: 'spin 1.2s linear infinite' }} size={16} />
-                  실시간 백그라운드 번역 진행 중...
+                  번역 진행 중 ({transProgress}%)
                 </span>
-                <span>{transProgress}% 완료</span>
+                <button 
+                  onClick={() => {
+                    cancelTranslationRef.current = true;
+                    alert('번역 중단을 요청했습니다. 현재 문단까지만 완료 후 안전하게 정지됩니다.');
+                  }}
+                  style={{
+                    backgroundColor: '#e78284',
+                    color: '#11111b',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    fontSize: '11px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                >
+                  번역 중지
+                </button>
               </div>
             )}
 
