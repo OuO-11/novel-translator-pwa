@@ -105,6 +105,9 @@ function App() {
   const [novelHtmlResult, setNovelHtmlResult] = useState(''); // 목록 번역 html 결과
   const [activeViewerNovelId, setActiveViewerNovelId] = useState(null);
   const [activeViewerChapter, setActiveViewerChapter] = useState(1);
+  const [viewerPrevUrl, setViewerPrevUrl] = useState('');
+  const [viewerNextUrl, setViewerNextUrl] = useState('');
+  const [viewerIndexUrl, setViewerIndexUrl] = useState('');
 
   // 백엔드 Vercel 실시간 로그 대시보드로 클라이언트 런타임 오류 리포트 전송
   const reportErrorToBackend = async (error, contextInfo = '') => {
@@ -409,8 +412,11 @@ function App() {
         setNovelHtmlResult(translatedHtml);
         setActiveTab('pageResult');
       } else {
-        const { title, paragraphs } = extractNovelContent(data.html, targetUrl);
+        const { title, paragraphs, prevUrl, nextUrl, indexUrl } = extractNovelContent(data.html, targetUrl);
         setViewerTitle(title);
+        setViewerPrevUrl(prevUrl || '');
+        setViewerNextUrl(nextUrl || '');
+        setViewerIndexUrl(indexUrl || '');
         
         // [소설 마스터 키 중복 제거 적재 알고리즘 (14단계)]
         // 동일 소설이 이미 저장소(novels)에 있는지 제목 또는 대표 목차 URL을 훑어 검색
@@ -559,6 +565,25 @@ function App() {
 
     // 보관함 소설 카드를 누르는 즉시 자동으로 번역 엔진을 구동해 감상창으로 워프합니다!
     triggerTranslationFlow(urlToLoad, 'viewer', chapterToLoad);
+  };
+
+  // 뷰어 하단 이전화/다음화/목차 클릭 액션 라우터 (18단계 핵심)
+  const handleNavigateEpisode = (targetUrl) => {
+    if (!targetUrl) return;
+
+    setInputUrl(targetUrl);
+
+    const isEpisode = isNovelEpisodeUrl(targetUrl);
+    const detectedChapter = detectChapterFromUrl(targetUrl);
+    const finalMode = isEpisode ? 'viewer' : 'page';
+
+    setTransMode(finalMode);
+    if (isEpisode) {
+      setActiveViewerChapter(detectedChapter);
+    }
+
+    // 즉시 실시간 스트리밍 번역 구동
+    triggerTranslationFlow(targetUrl, finalMode, isEpisode ? detectedChapter : null);
   };
 
   const handleClearCache = async () => {
@@ -894,6 +919,74 @@ function App() {
                   </div>
                 ))}
             </div>
+
+            {/* 소설 네비게이션 버튼 그룹 (이전화, 목차, 다음화) (18단계 핵심) */}
+            {(viewerPrevUrl || viewerNextUrl || viewerIndexUrl) && (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                gap: '12px',
+                marginTop: '24px',
+                marginBottom: '40px',
+                paddingTop: '20px',
+                borderTop: '1px solid #252630'
+              }}>
+                {viewerPrevUrl && (
+                  <button 
+                    onClick={() => handleNavigateEpisode(viewerPrevUrl)}
+                    style={{
+                      backgroundColor: '#252630',
+                      color: '#e2e4ed',
+                      border: '1px solid #2d2d2d',
+                      borderRadius: '8px',
+                      padding: '10px 18px',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      transition: 'background 0.2s'
+                    }}
+                  >
+                    이전화
+                  </button>
+                )}
+                {viewerIndexUrl && (
+                  <button 
+                    onClick={() => handleNavigateEpisode(viewerIndexUrl)}
+                    style={{
+                      backgroundColor: '#252630',
+                      color: '#e5c07b',
+                      border: '1px solid #2d2d2d',
+                      borderRadius: '8px',
+                      padding: '10px 18px',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      transition: 'background 0.2s'
+                    }}
+                  >
+                    목차
+                  </button>
+                )}
+                {viewerNextUrl && (
+                  <button 
+                    onClick={() => handleNavigateEpisode(viewerNextUrl)}
+                    style={{
+                      backgroundColor: '#252630',
+                      color: '#e2e4ed',
+                      border: '1px solid #2d2d2d',
+                      borderRadius: '8px',
+                      padding: '10px 18px',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      transition: 'background 0.2s'
+                    }}
+                  >
+                    다음화
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 

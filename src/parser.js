@@ -153,6 +153,40 @@ export function extractNovelContent(rawHtml, url) {
     }
   }
 
+  // 이전화, 다음화, 목차 링크 수집 (18단계 핵심)
+  let prevUrl = '';
+  let nextUrl = '';
+  let indexUrl = '';
+
+  const links = doc.querySelectorAll('a');
+  links.forEach(a => {
+    const text = a.textContent?.trim() || '';
+    const href = a.getAttribute('href') || '';
+    if (!href) return;
+
+    if (text.includes('上一页') || text.includes('이전 페이지') || text.includes('이전화') || text.includes('上一章')) {
+      prevUrl = href;
+    } else if (text.includes('下一页') || text.includes('다음 페이지') || text.includes('다음화') || text.includes('下一章')) {
+      nextUrl = href;
+    } else if (text.includes('目录') || text.includes('목차') || text.includes('목록') || text.includes('返回书页')) {
+      indexUrl = href;
+    }
+  });
+
+  // 상대 경로 절대 경로화 보정
+  const makeAbsolute = (base, relative) => {
+    if (!relative) return '';
+    try {
+      return new URL(relative, base).toString();
+    } catch(e) {
+      return relative;
+    }
+  };
+
+  prevUrl = makeAbsolute(url, prevUrl);
+  nextUrl = makeAbsolute(url, nextUrl);
+  indexUrl = makeAbsolute(url, indexUrl);
+
   // 정제화 작업: 본문 안의 불필요한 스크립트, 광고성 배너 잔재들 최종 소거
   const cleanDoc = parser.parseFromString(contentHtml, 'text/html');
   const scripts = cleanDoc.querySelectorAll('script, style, iframe, ins');
@@ -165,13 +199,26 @@ export function extractNovelContent(rawHtml, url) {
   paragraphNodes.forEach(node => {
     const text = node.textContent?.trim();
     // 의미 있는 텍스트만 필터링
-    if (text && text.length > 1 && !text.startsWith('http') && !text.includes('上一页')) {
+    if (text && text.length > 1 && !text.startsWith('http')) {
+      // 52shuku 하단 광고 및 사이트 꼬리말 번역 제외
+      if (
+        text.includes('哦豁') || 
+        text.includes('52书库') || 
+        text.includes('传送门：') ||
+        text.includes('排行榜单') ||
+        text.includes('书库不错的')
+      ) {
+        return;
+      }
       paragraphsList.push(text);
     }
   });
 
   return {
     title,
-    paragraphs: paragraphsList
+    paragraphs: paragraphsList,
+    prevUrl,
+    nextUrl,
+    indexUrl
   };
 }
