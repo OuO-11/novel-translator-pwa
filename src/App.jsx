@@ -20,8 +20,8 @@ const DEFAULT_BASE_PROMPTS = {
 
 [중국어 고유명사 지침]
 - 중화권의 인명은 기본적으로 한국 한자음으로 씁니다. (예: 毛泽东 -> 모택동 / 成龍 -> 성룡 / 周明瑞 -> 주명서 / 小龍女 -> 소용녀)
-- 단, 현대 배경의 단어가 한국에서 이미 원음 표기로 매우 잘 알려진 경우는 알려진 표기를 따릅니다. (예: 习近平 -> 시진핑 / 北京 -> 베이징 / 上海 -> 상하이)
-- 배경이 무협/선협/대체역사 장르 of 소설이라면, 중국어 고유명사는 무조건 한국 한자음으로 씁니다. (예: 北京 -> 북경 / 上海 -> 상해 / 北冥神功 -> 북명신공)`,
+- 단, 현대 배경 of 단어가 한국에서 이미 원음 표기로 매우 잘 알려진 경우는 알려진 표기를 따릅니다. (예: 习近平 -> 시진핑 / 北京 -> 베이징 / 上海 -> 상하이)
+- 배경이 무협/선협/대체역사 장르의 소설이라면, 중국어 고유명사는 무조건 한국 한자음으로 씁니다. (예: 北京 -> 북경 / 上海 -> 상해 / 北冥神功 -> 북명신공)`,
   japanese: `You are a professional literary translator specializing in translating Japanese light novels and web novels into natural and engaging Korean. Follow these instructions:
 
 1. Translate into fluent Korean light novel style. Avoid direct translation of Japanese grammar style (e.g., '~의 경우', '~에 있어서' 같은 직역 지양).
@@ -92,7 +92,7 @@ function App() {
   const [showThemeCollapse, setShowThemeCollapse] = useState(true);
   const [showMiscCollapse, setShowMiscCollapse] = useState(true);
 
-  // 번역 입력 상태
+  // 번역 입력 및 내부 모드 상태 (transMode는 주소 기반 자동 판정되므로 UI에서는 감춤)
   const [inputUrl, setInputUrl] = useState('');
   const [transMode, setTransMode] = useState('viewer'); // 'page' (목록 번역) or 'viewer' (본문 뷰어)
   const [transProgress, setTransProgress] = useState(0);
@@ -216,13 +216,19 @@ function App() {
     }
   };
 
-  // URL 입력 변경 시 화수 자동 감지 동기화
+  // [출력 모드 및 화수 완전 자동 감지화 (13단계 핵심)]
+  // 유저가 수동으로 판단하여 오류를 낼 수 있는 여지를 원천 배격하기 위해,
+  // 주소를 입력받는 찰나에 본문 주소인지 목록 주소인지 판별하여 transMode를 자동 세팅합니다.
   const handleUrlChange = (e) => {
     const url = e.target.value;
     setInputUrl(url);
-    if (transMode === 'viewer') {
+    
+    if (isNovelEpisodeUrl(url)) {
+      setTransMode('viewer');
       const detectedChapter = detectChapterFromUrl(url);
       setActiveViewerChapter(detectedChapter);
+    } else {
+      setTransMode('page');
     }
   };
 
@@ -343,11 +349,9 @@ function App() {
         setNovelHtmlResult(translatedHtml);
         setActiveTab('pageResult');
       } else {
-        // [본문 뷰어 모드 - colomo.dev 스타일 실시간 스트리밍 출력 이식]
         const { title, paragraphs } = extractNovelContent(data.html, targetUrl);
         setViewerTitle(title);
         
-        // 보관함 DB 등록 및 화수 업데이트
         const novelId = await saveNovel({
           title,
           url: targetUrl,
@@ -356,7 +360,6 @@ function App() {
         });
         setActiveViewerNovelId(novelId);
 
-        // 캐시 조회
         const cached = await getEpisode(novelId, chapterToUse);
         if (cached) {
           const parsedLines = JSON.parse(cached.translatedText);
@@ -366,10 +369,9 @@ function App() {
           setTransProgress(100);
           setActiveTab('viewer');
         } else {
-          // 캐시가 없을 시, 즉시 리더기 탭(viewer)으로 넘어가서 원문을 먼저 채우고 대기 (실시간 한 줄씩 뿅뿅 뜨게 유도)
           const initialViewerLines = paragraphs.map(p => ({ original: p, translated: 'AI 번역 대기 중...' }));
           setViewerParagraphs(initialViewerLines);
-          setActiveTab('viewer'); // 대기 화면을 보여주지 않고 즉시 리더기로 휙 이동!
+          setActiveTab('viewer');
 
           const translatedList = [];
           const fullOriginalText = paragraphs.join('\n');
@@ -382,29 +384,24 @@ function App() {
           for (let i = 0; i < paragraphs.length; i++) {
             const orig = paragraphs[i];
             
-            // 뷰어 화면 개별 문단에 임시로 '번역 중...' 상태 노출
             setViewerParagraphs(prev => {
               const next = [...prev];
               next[i] = { original: orig, translated: 'AI 번역 가동 중...' };
               return next;
             });
 
-            // 해당 단락 1개 번역 실행
             const trans = await translateTextWithRotation(orig, finalSystemPrompt, selectedModel);
             translatedList.push(trans);
 
-            // 번역 완료 즉시 뷰어 화면의 개별 문단을 실시간 한글로 뿅 업데이트! (스트리밍 경험 제공)
             setViewerParagraphs(prev => {
               const next = [...prev];
               next[i] = { original: orig, translated: trans };
               return next;
             });
 
-            // 진행률 표시
             setTransProgress(Math.round(((i + 1) / paragraphs.length) * 100));
           }
 
-          // 전체 번역이 마쳐진 후 DB 캐시에 영구 적재
           await saveEpisode(novelId, chapterToUse, JSON.stringify(translatedList), JSON.stringify(paragraphs));
         }
         
@@ -418,9 +415,15 @@ function App() {
     }
   };
 
-  // 수동 번역 시작 버튼 트리거
+  // 수동 [번역 시작] 트리거 시, 입력된 URL을 동적으로 최종 분석하여 강제 분기 연동 (사용자 오류 100% 방지)
   const handleTranslateStart = () => {
-    triggerTranslationFlow(inputUrl, transMode);
+    const finalMode = isNovelEpisodeUrl(inputUrl) ? 'viewer' : 'page';
+    setTransMode(finalMode);
+    
+    const detectedChapter = detectChapterFromUrl(inputUrl);
+    setActiveViewerChapter(detectedChapter);
+
+    triggerTranslationFlow(inputUrl, finalMode, finalMode === 'viewer' ? detectedChapter : null);
   };
 
   // iframe 내부 링크 클릭 가로채기 핸들러
@@ -680,21 +683,7 @@ function App() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '12px', color: '#a6adc8' }}>출력 모드 (뷰어 형태)</label>
-              <select 
-                value={transMode} 
-                onChange={(e) => setTransMode(e.target.value)}
-                style={{
-                  backgroundColor: '#181825', border: '1px solid #313244', borderRadius: '8px', padding: '8px', color: '#cdd6f4'
-                }}
-              >
-                <option value="viewer">본문 리더기 (소설독서용)</option>
-                <option value="page">목록/웹페이지 번역 (원본보존용)</option>
-              </select>
-            </div>
-
-            {/* 수동 화수 선택창 제거 완료 (유저 피드백 반영: 완전 자동감지형 미니멀리즘 인터페이스) */}
+            {/* 출력 모드 셀렉트 박스 완전 철거 완료 (유저 피드백 반영: 입력된 URL 패턴에 기초하여 출력 모드를 지능형 완전 자동 판정) */}
 
             {/* 번역 기동 버튼 */}
             <button 
@@ -712,7 +701,8 @@ function App() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '8px'
+                gap: '8px',
+                marginTop: '10px'
               }}
             >
               {isTranslating ? (
@@ -731,7 +721,7 @@ function App() {
         {activeTab === 'viewer' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative' }}>
             
-            {/* 번역 진행률 플로팅 프로그래스 바 (colomo.dev와 동일하게 뷰어 상태에서 실시간 전하량 렌더링) */}
+            {/* 번역 진행률 플로팅 프로그래스 바 */}
             {isTranslating && (
               <div style={{
                 position: 'sticky',
@@ -898,7 +888,7 @@ function App() {
               </button>
             </div>
 
-            {/* 프롬프트 1 (Base Prompt): 언어별 기본 번역기 프롬프트 설정 (비구씨 템플릿 포함) */}
+            {/* 프롬프트 1 (Base Prompt) */}
             <div style={{ backgroundColor: '#181825', padding: '16px', borderRadius: '14px', border: '1px solid #313244', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <h4 style={{ margin: 0, fontSize: '14px', color: '#f9e2af' }}>🌐 1. 기본 언어 번역기 지침 (프롬프트 1)</h4>
               
@@ -944,7 +934,7 @@ function App() {
               </div>
             </div>
 
-            {/* 프롬프트 2 (Sub Preset): 프롬프트 템플릿 추가/관리 영역 */}
+            {/* 프롬프트 2 (Sub Preset) */}
             <div style={{ backgroundColor: '#181825', padding: '16px', borderRadius: '14px', border: '1px solid #313244', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <h4 style={{ margin: 0, fontSize: '14px', color: '#cba6f7' }}>📝 2. 작품별 추가 지침 프리셋 (프롬프트 2)</h4>
               
