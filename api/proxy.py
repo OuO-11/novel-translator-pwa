@@ -61,6 +61,24 @@ def proxy():
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"Failed to fetch resource: {str(e)}"}), 502
 
+# Vercel Serverless 에러 로깅 엔드포인트 추가 (프론트엔드 예외를 콘솔로 모니터링)
+@app.route('/api/log_error', methods=['POST'])
+def log_error():
+    try:
+        data = request.json or {}
+        print("\n\n==================================================")
+        print("🚨 [FRONTEND RUNTIME ERROR DETECTED]")
+        print(f"🕒 Time   : {data.get('time')}")
+        print(f"📖 Context: {data.get('context')}")
+        print(f"💬 Message: {data.get('message')}")
+        print(f"🔗 URL    : {data.get('url')}")
+        print(f"📂 Stack  : {data.get('stack')}")
+        print("==================================================\n\n")
+        return jsonify({"status": "logged"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # Vercel Serverless 실행을 위해 app 인스턴스 서빙
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
+

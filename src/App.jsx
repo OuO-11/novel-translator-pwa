@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings, FolderHeart, Star, Trash2, Plus, Download, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { openDB, saveNovel, getNovels, deleteNovel, saveEpisode, getEpisode, clearOldEpisodes, getCacheStatistics } from './db.js';
-import { getApiKeys, saveApiKeys, getActiveApiKey, fetchAvailableModels } from './apiRotator.js';
+import { getApiKeys, saveApiKeys, getActiveApiKey, fetchAvailableModels, translateTextWithRotation } from './apiRotator.js';
 import { getPromptsTree, savePreset, deletePreset, getPromptContent } from './promptManager.js';
 import { translateFullPage, extractNovelContent } from './parser.js';
 import { downloadCachedEpisodes } from './downloader.js';
+
 
 // 언어별 전용 기본 번역기 프롬프트 (프롬프트 1) 기본값 정의 (비구씨 정밀 번역 규칙 기반 탑재)
 const DEFAULT_BASE_PROMPTS = {
@@ -105,14 +106,47 @@ function App() {
   const [activeViewerNovelId, setActiveViewerNovelId] = useState(null);
   const [activeViewerChapter, setActiveViewerChapter] = useState(1);
 
+  // 백엔드 Vercel 실시간 로그 대시보드로 클라이언트 런타임 오류 리포트 전송
+  const reportErrorToBackend = async (error, contextInfo = '') => {
+    try {
+      const errorPayload = {
+        time: new Date().toISOString(),
+        message: error.message || String(error),
+        stack: error.stack || 'No stack trace details provided.',
+        url: window.location.href,
+        context: contextInfo
+      };
+      console.error("Reporting Error to Vercel Console:", errorPayload);
+      
+      await fetch('/api/log_error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(errorPayload)
+      });
+    } catch (e) {
+      console.error("Failed to route runtime error to Vercel logger:", e);
+    }
+  };
+
   // 최신 inputUrl 값을 참조하기 위한 ref (iframe 비동기 핸들러용)
   const inputUrlRef = useRef(inputUrl);
   useEffect(() => {
     inputUrlRef.current = inputUrl;
   }, [inputUrl]);
 
-  // 1. 초기 로드 및 모델 목록 캐시 동기화
+  // 1. 초기 로드 및 모델 목록 캐시 동기화 + 전역 런타임 에러 추적 리스너 등록
   useEffect(() => {
+    // 런타임 에러 전역 트래킹 핸들러
+    const handleGlobalError = (event) => {
+      reportErrorToBackend(event.error || new Error(event.message), 'Global window.onerror capture');
+    };
+    const handleUnhandledRejection = (event) => {
+      reportErrorToBackend(event.reason || new Error('Unhandled Promise Rejection'), 'Global Promise Rejection capture');
+    };
+
+    window.addEventListener('error', handleGlobalError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
     async function init() {
       try {
         await openDB();
@@ -136,12 +170,19 @@ function App() {
         }
       } catch (e) {
         console.error('Init error:', e);
+        reportErrorToBackend(e, 'App DB initialization sequence');
       } finally {
         setIsLoading(false);
       }
     }
     init();
+
+    return () => {
+      window.removeEventListener('error', handleGlobalError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
   }, []);
+
 
   // 용어 사전 동적 필터
   const filterActiveGlossary = (rawSubPrompt, originalTextSegment) => {
@@ -323,6 +364,7 @@ function App() {
       alert(`다운로드 완료: ${fileName}`);
     } catch (err) {
       alert(err.message);
+      reportErrorToBackend(err, `handleDownload for novel: ${novel.title}`);
     }
   };
 
@@ -448,6 +490,7 @@ function App() {
       }
     } catch (err) {
       alert('번역 중 오류가 발생했습니다: ' + err.message);
+      reportErrorToBackend(err, `triggerTranslationFlow for ${targetUrl}`);
     } finally {
       setIsTranslating(false);
       getCacheStatistics().then(setCacheStats);
