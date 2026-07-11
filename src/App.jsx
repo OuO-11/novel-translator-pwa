@@ -716,13 +716,13 @@ function App() {
         alignItems: 'center',
         justifyContent: 'center',
         minHeight: '100vh',
-        backgroundColor: '#191919',
+        backgroundColor: '#151815',
         color: '#e2e4ed',
         fontFamily: 'system-ui, -apple-system, sans-serif'
       }}>
         <div style={{
-          border: '4px solid #252630',
-          borderTop: '4px solid #babbf1',
+          border: '4px solid #222822',
+          borderTop: '4px solid #81c784',
           borderRadius: '50%',
           width: '32px',
           height: '32px',
@@ -747,7 +747,7 @@ function App() {
       display: 'flex',
       flexDirection: 'column',
       minHeight: '100vh',
-      backgroundColor: '#191919',
+      backgroundColor: '#151815',
       color: '#e2e4ed',
       fontFamily: 'system-ui, -apple-system, sans-serif'
     }}>
@@ -757,15 +757,15 @@ function App() {
           display: 'flex',
           alignItems: 'center',
           padding: '16px 20px',
-          borderBottom: '1px solid #252630',
-          backgroundColor: '#121212',
+          borderBottom: '1px solid #222822',
+          backgroundColor: '#111311',
           position: 'sticky',
           top: 0,
           zIndex: 10
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{
-              background: 'linear-gradient(135deg, #babbf1, #ca9ee6)',
+              background: 'linear-gradient(135deg, #81c784, #83c5be)',
               padding: '8px',
               borderRadius: '12px',
               display: 'flex',
@@ -775,7 +775,7 @@ function App() {
               <BookOpen size={24} color="#11111b" />
             </div>
             <span style={{ fontSize: '20px', fontWeight: 'bold', letterSpacing: '-0.5px' }}>
-              Novel<span style={{ color: '#babbf1' }}>Trans</span>
+              Novel<span style={{ color: '#81c784' }}>Trans</span>
             </span>
           </div>
         </header>
@@ -807,8 +807,8 @@ function App() {
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    backgroundColor: '#121212',
-                    border: '1px solid #252630',
+                    backgroundColor: '#111311',
+                    border: '1px solid #222822',
                     borderRadius: '16px',
                     padding: '16px',
                     gap: '16px',
@@ -816,7 +816,7 @@ function App() {
                     transition: 'transform 0.15s'
                   }}
                 >
-                  <div style={{ backgroundColor: '#252630', padding: '10px', borderRadius: '12px' }}>
+                  <div style={{ backgroundColor: '#222822', padding: '10px', borderRadius: '12px' }}>
                     <FolderHeart size={22} color="#e78284" />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -824,7 +824,7 @@ function App() {
                       {novel.title}
                     </h4>
                     <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
-                      <span style={{ backgroundColor: '#252630', padding: '2px 6px', borderRadius: '4px', color: '#babbf1' }}>{novel.site}</span>
+                      <span style={{ backgroundColor: '#222822', padding: '2px 6px', borderRadius: '4px', color: '#81c784' }}>{novel.site}</span>
                       <span style={{ color: '#a5adce' }}>마지막으로 읽은 회차: {novel.lastReadChapter}화</span>
                     </div>
                   </div>
@@ -865,8 +865,8 @@ function App() {
                 value={inputUrl}
                 onChange={handleUrlChange}
                 style={{
-                  backgroundColor: '#121212',
-                  border: '1px solid #252630',
+                  backgroundColor: '#111311',
+                  border: '1px solid #222822',
                   borderRadius: '10px',
                   padding: '12px',
                   color: '#e2e4ed',
@@ -886,7 +886,7 @@ function App() {
                     setSelectedPreset('default');
                   }}
                   style={{
-                    backgroundColor: '#121212', border: '1px solid #252630', borderRadius: '8px', padding: '8px', color: '#e2e4ed'
+                    backgroundColor: '#111311', border: '1px solid #222822', borderRadius: '8px', padding: '8px', color: '#e2e4ed'
                   }}
                 >
                   <option value="chinese">중국어 번역기</option>
@@ -900,7 +900,7 @@ function App() {
                   value={selectedPreset} 
                   onChange={(e) => setSelectedPreset(e.target.value)}
                   style={{
-                    backgroundColor: '#121212', border: '1px solid #252630', borderRadius: '8px', padding: '8px', color: '#e2e4ed'
+                    backgroundColor: '#111311', border: '1px solid #222822', borderRadius: '8px', padding: '8px', color: '#e2e4ed'
                   }}
                 >
                   {Object.keys(currentPresets).map(presetId => (
@@ -917,7 +917,7 @@ function App() {
               onClick={handleTranslateStart}
               disabled={isTranslating}
               style={{
-                background: 'linear-gradient(135deg, #babbf1, #ca9ee6)',
+                background: 'linear-gradient(135deg, #81c784, #83c5be)',
                 border: 'none',
                 borderRadius: '12px',
                 padding: '16px',
@@ -1026,13 +1026,13 @@ function App() {
                     setLastTranslateSubTab('translate');
                     setActiveTab('translate');
                   }}
-                  style={{ background: '#252630', border: 'none', color: '#babbf1', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                  style={{ background: '#222822', border: 'none', color: '#81c784', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
                 >
                   ← 주소 입력창으로
                 </button>
                 <button 
                   onClick={() => setActiveTab('library')}
-                  style={{ background: '#252630', border: 'none', color: '#e2e4ed', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
+                  style={{ background: '#222822', border: 'none', color: '#e2e4ed', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}
                 >
                   ← 보관함으로
                 </button>
@@ -1042,7 +1042,7 @@ function App() {
                       triggerTranslationFlow(inputUrl, 'viewer', activeViewerChapter, true);
                     }}
                     style={{ 
-                      background: 'linear-gradient(135deg, #ca9ee6, #ea999c)', 
+                      background: 'linear-gradient(135deg, #81c784, #83c5be)', 
                       border: 'none', 
                       color: '#11111b', 
                       padding: '6px 12px', 
@@ -1056,7 +1056,7 @@ function App() {
                   </button>
                 )}
               </div>
-              <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#babbf1' }}>{viewerTitle}</h2>
+              <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#81c784' }}>{viewerTitle}</h2>
               <div style={{ display: 'flex', gap: '10px', fontSize: '12px', color: '#a5adce', marginTop: '6px' }}>
                 <span>제 {activeViewerChapter}화 감상 중</span>
               </div>
@@ -1244,7 +1244,7 @@ function App() {
               <button 
                 onClick={handleSaveSettings}
                 style={{
-                  backgroundColor: '#babbf1', border: 'none', borderRadius: '8px', padding: '10px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px'
+                  backgroundColor: '#81c784', border: 'none', borderRadius: '8px', padding: '10px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px'
                 }}
               >
                 API/모델 설정 저장
@@ -1252,7 +1252,7 @@ function App() {
             </div>
 
             {/* 프롬프트 1 (Base Prompt) */}
-            <div style={{ backgroundColor: '#121212', padding: '16px', borderRadius: '14px', border: '1px solid #252630', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ backgroundColor: '#111311', padding: '16px', borderRadius: '14px', border: '1px solid #222822', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <h4 style={{ margin: 0, fontSize: '14px', color: '#e5c07b' }}>🌐 1. 기본 언어 번역기 지침 (프롬프트 1)</h4>
               
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -1290,7 +1290,7 @@ function App() {
                   onChange={(e) => handleUpdateBasePrompt(selectedLang, e.target.value)}
                   placeholder="언어별 기본 번역 지시 규칙을 입력하세요."
                   style={{
-                    backgroundColor: '#252630', border: 'none', borderRadius: '8px', padding: '10px', color: '#e2e4ed', fontSize: '12px', fontFamily: 'monospace', lineHeight: '1.5'
+                    backgroundColor: '#222822', border: 'none', borderRadius: '8px', padding: '10px', color: '#e2e4ed', fontSize: '12px', fontFamily: 'monospace', lineHeight: '1.5'
                   }}
                 />
                 <span style={{ fontSize: '11px', color: '#e5c07b', textAlign: 'right' }}>* 입력 즉시 임시 자동 저장됩니다.</span>
@@ -1298,15 +1298,15 @@ function App() {
             </div>
 
             {/* 프롬프트 2 (Sub Preset) */}
-            <div style={{ backgroundColor: '#121212', padding: '16px', borderRadius: '14px', border: '1px solid #252630', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <h4 style={{ margin: 0, fontSize: '14px', color: '#ca9ee6' }}>📝 2. 작품별 추가 지침 프리셋 (프롬프트 2)</h4>
+            <div style={{ backgroundColor: '#111311', padding: '16px', borderRadius: '14px', border: '1px solid #222822', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <h4 style={{ margin: 0, fontSize: '14px', color: '#83c5be' }}>📝 2. 작품별 추가 지침 프리셋 (프롬프트 2)</h4>
               
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button 
                   onClick={() => setSelectedLang('chinese')} 
                   style={{
                     flex: 1, padding: '8px', borderRadius: '6px', border: 'none',
-                    backgroundColor: selectedLang === 'chinese' ? '#ca9ee6' : '#252630',
+                    backgroundColor: selectedLang === 'chinese' ? '#83c5be' : '#222822',
                     color: selectedLang === 'chinese' ? '#11111b' : '#e2e4ed',
                     fontWeight: 'bold', cursor: 'pointer', fontSize: '12px'
                   }}
@@ -1317,7 +1317,7 @@ function App() {
                   onClick={() => setSelectedLang('japanese')} 
                   style={{
                     flex: 1, padding: '8px', borderRadius: '6px', border: 'none',
-                    backgroundColor: selectedLang === 'japanese' ? '#ca9ee6' : '#252630',
+                    backgroundColor: selectedLang === 'japanese' ? '#83c5be' : '#222822',
                     color: selectedLang === 'japanese' ? '#11111b' : '#e2e4ed',
                     fontWeight: 'bold', cursor: 'pointer', fontSize: '12px'
                   }}
@@ -1330,7 +1330,7 @@ function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <label style={{ fontSize: '12px', color: '#a5adce' }}>현재 등록된 추가 프리셋</label>
                 {Object.keys(currentPresets).map(presetId => (
-                  <div key={presetId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#252630', padding: '8px 12px', borderRadius: '8px' }}>
+                  <div key={presetId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#222822', padding: '8px 12px', borderRadius: '8px' }}>
                     <span style={{ fontSize: '13px' }}>{currentPresets[presetId].name}</span>
                     {presetId !== 'default' && (
                       <button 
@@ -1345,14 +1345,14 @@ function App() {
               </div>
 
               {/* 신규 등록 폼 */}
-              <div style={{ borderTop: '1px solid #252630', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ borderTop: '1px solid #222822', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <label style={{ fontSize: '12px', color: '#a5adce' }}>새 추가 지침 추가</label>
                 <input 
                   type="text" placeholder="예: 코난 덕질용 번역체" 
                   value={newPresetName}
                   onChange={(e) => setNewPresetName(e.target.value)}
                   style={{
-                    backgroundColor: '#252630', border: 'none', borderRadius: '6px', padding: '8px', color: '#e2e4ed', fontSize: '12px'
+                    backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '8px', color: '#e2e4ed', fontSize: '12px'
                   }}
                 />
                 <textarea 
@@ -1361,13 +1361,13 @@ function App() {
                   value={newPresetContent}
                   onChange={(e) => setNewPresetContent(e.target.value)}
                   style={{
-                    backgroundColor: '#252630', border: 'none', borderRadius: '6px', padding: '8px', color: '#e2e4ed', fontSize: '12px'
+                    backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '8px', color: '#e2e4ed', fontSize: '12px'
                   }}
                 />
                 <button 
                   onClick={handleAddCustomPreset}
                   style={{
-                    backgroundColor: '#ca9ee6', border: 'none', borderRadius: '8px', padding: '10px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px'
+                    backgroundColor: '#83c5be', border: 'none', borderRadius: '8px', padding: '10px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px'
                   }}
                 >
                   추가 지침 프리셋 등록
@@ -1378,10 +1378,10 @@ function App() {
             {/* colomo.dev 연동 리더기 커스텀 대시보드 */}
             
             {/* 아코디언 1: 테마 설정 */}
-            <div style={{ backgroundColor: '#121212', borderRadius: '14px', border: '1px solid #252630', overflow: 'hidden' }}>
+            <div style={{ backgroundColor: '#111311', borderRadius: '14px', border: '1px solid #222822', overflow: 'hidden' }}>
               <div 
                 onClick={() => setShowThemeCollapse(!showThemeCollapse)}
-                style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: showThemeCollapse ? '1px solid #252630' : 'none' }}
+                style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: showThemeCollapse ? '1px solid #222822' : 'none' }}
               >
                 <h4 style={{ margin: 0, fontSize: '14px', color: '#a6d189', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   ▼ 테마 설정
@@ -1399,7 +1399,7 @@ function App() {
                       <input 
                         type="text" value={readerSettings.fontFamily} 
                         onChange={(e) => handleUpdateReaderSetting('fontFamily', e.target.value)}
-                        style={{ backgroundColor: '#252630', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
+                        style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1407,7 +1407,7 @@ function App() {
                       <input 
                         type="text" value={readerSettings.fontColor} 
                         onChange={(e) => handleUpdateReaderSetting('fontColor', e.target.value)}
-                        style={{ backgroundColor: '#252630', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
+                        style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1415,7 +1415,7 @@ function App() {
                       <input 
                         type="text" value={readerSettings.bgColor} 
                         onChange={(e) => handleUpdateReaderSetting('bgColor', e.target.value)}
-                        style={{ backgroundColor: '#252630', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
+                        style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1423,7 +1423,7 @@ function App() {
                       <input 
                         type="number" value={readerSettings.fontSize} 
                         onChange={(e) => handleUpdateReaderSetting('fontSize', parseInt(e.target.value) || 16)}
-                        style={{ backgroundColor: '#252630', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
+                        style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1431,7 +1431,7 @@ function App() {
                       <input 
                         type="number" step="100" min="100" max="900" value={readerSettings.fontWeight} 
                         onChange={(e) => handleUpdateReaderSetting('fontWeight', parseInt(e.target.value) || 400)}
-                        style={{ backgroundColor: '#252630', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
+                        style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1439,7 +1439,7 @@ function App() {
                       <input 
                         type="number" value={readerSettings.paddingX} 
                         onChange={(e) => handleUpdateReaderSetting('paddingX', parseInt(e.target.value) || 20)}
-                        style={{ backgroundColor: '#252630', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
+                        style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1447,7 +1447,7 @@ function App() {
                       <input 
                         type="number" step="0.1" value={readerSettings.lineHeight} 
                         onChange={(e) => handleUpdateReaderSetting('lineHeight', parseFloat(e.target.value) || 1.8)}
-                        style={{ backgroundColor: '#252630', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
+                        style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1455,7 +1455,7 @@ function App() {
                       <input 
                         type="number" value={readerSettings.paragraphGap} 
                         onChange={(e) => handleUpdateReaderSetting('paragraphGap', parseInt(e.target.value) || 12)}
-                        style={{ backgroundColor: '#252630', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
+                        style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1463,7 +1463,7 @@ function App() {
                       <input 
                         type="number" step="0.5" value={readerSettings.textIndent} 
                         onChange={(e) => handleUpdateReaderSetting('textIndent', parseFloat(e.target.value) || 0)}
-                        style={{ backgroundColor: '#252630', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
+                        style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -1477,7 +1477,7 @@ function App() {
                   </div>
 
                   {/* 테마 스위치들 */}
-                  <div style={{ borderTop: '1px solid #252630', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ borderTop: '1px solid #222822', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span>한자/일본어 병기 유지</span>
                       <input 
@@ -1583,8 +1583,8 @@ function App() {
       {/* 하단 네비게이션 */}
       <footer style={{
         display: 'flex',
-        borderTop: '1px solid #252630',
-        backgroundColor: '#121212',
+        borderTop: '1px solid #222822',
+        backgroundColor: '#111311',
         padding: '10px 0',
         position: 'sticky',
         bottom: 0,
@@ -1615,7 +1615,7 @@ function App() {
                 gap: '4px',
                 background: 'none',
                 border: 'none',
-                color: isActive ? '#babbf1' : '#a5adce',
+                color: isActive ? '#81c784' : '#a5adce',
                 cursor: 'pointer',
                 fontSize: '12px',
                 fontWeight: isActive ? 'bold' : 'normal'
