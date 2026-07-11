@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings, FolderHeart, Star, Trash2, Plus, Download, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { openDB, saveNovel, getNovels, deleteNovel, saveEpisode, getEpisode, clearOldEpisodes, getCacheStatistics } from './db.js';
 import { getApiKeys, saveApiKeys, getActiveApiKey, fetchAvailableModels } from './apiRotator.js';
@@ -105,6 +105,12 @@ function App() {
   const [activeViewerNovelId, setActiveViewerNovelId] = useState(null);
   const [activeViewerChapter, setActiveViewerChapter] = useState(1);
 
+  // 최신 inputUrl 값을 참조하기 위한 ref (iframe 비동기 핸들러용)
+  const inputUrlRef = useRef(inputUrl);
+  useEffect(() => {
+    inputUrlRef.current = inputUrl;
+  }, [inputUrl]);
+
   // 1. 초기 로드 및 모델 목록 캐시 동기화
   useEffect(() => {
     async function init() {
@@ -137,9 +143,7 @@ function App() {
     init();
   }, []);
 
-  // [토큰 및 컨텍스트 최적화 핵심 엔진 개발 (10.5단계)]
-  // 300개가 넘는 대용량 단어 사전(프롬프트 2)이 있더라도, 
-  // 현재 번역할 원문에 실제로 존재하는 단어만 자바스크립트 includes 매칭으로 발라내는 동적 필터
+  // 용어 사전 동적 필터
   const filterActiveGlossary = (rawSubPrompt, originalTextSegment) => {
     if (!rawSubPrompt) return '';
     const lines = rawSubPrompt.split('\n');
@@ -148,13 +152,11 @@ function App() {
       const trimmed = line.trim();
       if (!trimmed) return false;
 
-      // 화살표(->), 등호(=), 콜론(:) 기호 기준 왼쪽의 고유 키워드(중국어/일본어 원문) 추출
       const match = trimmed.match(/(.*?)(?:->|=|\:)/);
       const keyword = match 
-        ? match[1].replace(/[-*\s]/g, '').trim() // 불릿 마크 및 공백 제거
+        ? match[1].replace(/[-*\s]/g, '').trim()
         : trimmed.trim();
 
-      // 원문 텍스트 내에 실제로 해당 단어가 출몰하는 경우에만 필터링에 탑재
       return keyword && keyword.length >= 2 && originalTextSegment.includes(keyword);
     });
 
@@ -187,6 +189,32 @@ function App() {
     const genericMatch = url.match(/\/(\d+)(?:\.html)?\/?$/i);
     if (genericMatch) return parseInt(genericMatch[1]);
     return 1;
+  };
+
+  // 상세 소설 본문 화수 주소인지 감지하는 헬퍼 함수
+  const isNovelEpisodeUrl = (url) => {
+    if (!url) return false;
+    return (
+      url.match(/_(\d+)\.html/i) || 
+      url.match(/[?&]chapterid=(\d+)/i) || 
+      url.match(/\/chapters\/(\d+)/i) ||
+      url.match(/\/(\d+)(?:\.html)?\/?$/i)
+    );
+  };
+
+  // iframe 내부 상대 경로를 원본 사이트 절대 경로로 매핑 복구
+  const resolveAbsoluteUrl = (currentInputUrl, clickedUrl) => {
+    try {
+      const inputOrigin = new URL(currentInputUrl).origin;
+      const clickedObj = new URL(clickedUrl);
+      // 만약 클릭된 주소의 도메인이 현재 내 호스트명(Vercel 등)과 같다면, 원본 사이트 도메인 주소로 원상 복구
+      if (clickedObj.host === window.location.host) {
+        return inputOrigin + clickedObj.pathname + clickedObj.search + clickedObj.hash;
+      }
+      return clickedUrl;
+    } catch (e) {
+      return clickedUrl;
+    }
   };
 
   // URL 입력 변경 시 화수 자동 감지 동기화
@@ -275,11 +303,14 @@ function App() {
     }
   };
 
-  // 실시간 번역 시작
-  const handleTranslateStart = async () => {
-    if (!inputUrl) return alert('번역할 URL을 입력해 주세요.');
+  // 실시간 번역 공통 구동 코어 함수 (파라미터 기반 트리거 유도)
+  const triggerTranslationFlow = async (targetUrl, targetMode, forceChapter = null) => {
     const activeKey = getActiveApiKey();
-    if (!activeKey) return alert('API Key를 먼저 설정에서 1개 이상 등록해 주세요.');
+    if (!activeKey) {
+      alert('API Key를 먼저 설정에서 1개 이상 등록해 주세요.');
+      setActiveTab('presets');
+      return;
+    }
 
     setIsTranslating(true);
     setTransProgress(5);
@@ -289,18 +320,20 @@ function App() {
     const basePrompt = basePrompts[selectedLang] || '';
     const rawSubPrompt = selectedPreset === 'default' ? '' : getPromptContent(selectedLang, selectedPreset);
 
+    // 화수 산출
+    const chapterToUse = forceChapter !== null ? forceChapter : detectChapterFromUrl(targetUrl);
+
     try {
       setTransProgress(20);
-      const res = await fetch(`/api/proxy?url=${encodeURIComponent(inputUrl)}`);
+      const res = await fetch(`/api/proxy?url=${encodeURIComponent(targetUrl)}`);
       if (!res.ok) throw new Error('CORS 프록시 서버 통신 실패');
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
       const tempTitle = data.html.match(/<title>(.*?)<\/title>/i)?.[1] || '번역된 소설';
-      const siteName = inputUrl.includes('52shuku') ? '52shuku' : inputUrl.includes('jjwxc') ? '진강문학성' : inputUrl.includes('ao3') ? 'AO3' : '기타';
+      const siteName = targetUrl.includes('52shuku') ? '52shuku' : targetUrl.includes('jjwxc') ? '진강문학성' : targetUrl.includes('ao3') ? 'AO3' : '기타';
 
-      if (transMode === 'page') {
-        // 목록 번역 모드의 경우 전체 HTML 데이터를 대상으로 용어 사전 매칭 필터 구동 (토큰 절약)
+      if (targetMode === 'page') {
         const activeSubPrompt = filterActiveGlossary(rawSubPrompt, data.html);
         const finalSystemPrompt = activeSubPrompt 
           ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
@@ -313,22 +346,18 @@ function App() {
         setNovelHtmlResult(translatedHtml);
         setActiveTab('pageResult');
       } else {
-        // 본문 뷰어 번역 모드
-        setTransProgress(40);
-        const { title, paragraphs } = extractNovelContent(data.html, inputUrl);
+        const { title, paragraphs } = extractNovelContent(data.html, targetUrl);
         setViewerTitle(title);
         
-        // 보관함 DB에 소설 등록
         const novelId = await saveNovel({
           title,
-          url: inputUrl,
+          url: targetUrl,
           site: siteName,
-          lastReadChapter: activeViewerChapter
+          lastReadChapter: chapterToUse
         });
         setActiveViewerNovelId(novelId);
 
-        // 이미 캐시된 내용이 있는지 확인
-        const cached = await getEpisode(novelId, activeViewerChapter);
+        const cached = await getEpisode(novelId, chapterToUse);
         if (cached) {
           const parsedLines = JSON.parse(cached.translatedText);
           const origLines = JSON.parse(cached.originalText || '[]');
@@ -337,13 +366,10 @@ function App() {
           setTransProgress(100);
           setActiveTab('viewer');
         } else {
-          // 캐시가 없는 생 원문 번역 시점
           const translatedList = [];
           const combinedList = [];
           
-          // 소설 1화 전체 원문 텍스트 병합 (용어 자동 필터용 타겟 단락 생성)
           const fullOriginalText = paragraphs.join('\n');
-          // 내 단어 사전에 300개의 단어가 있더라도, 실제 이 1화 텍스트 뭉치에 등장하는 용어만 쏙 골라내어 프롬프트 2 구성 (토큰 절약 극대화)
           const activeSubPrompt = filterActiveGlossary(rawSubPrompt, fullOriginalText);
           
           const finalSystemPrompt = activeSubPrompt 
@@ -353,14 +379,12 @@ function App() {
           for (let i = 0; i < paragraphs.length; i++) {
             const orig = paragraphs[i];
             setTransProgress(40 + Math.round((i / paragraphs.length) * 55));
-            // 최적화가 완수된 슬림하고 정밀한 시스템 프롬프트를 주입하여 Gemini 번역 가동
             const trans = await translateTextWithRotation(orig, finalSystemPrompt, selectedModel);
             translatedList.push(trans);
             combinedList.push({ original: orig, translated: trans });
           }
 
-          // DB 캐시에 영구 적재
-          await saveEpisode(novelId, activeViewerChapter, JSON.stringify(translatedList), JSON.stringify(paragraphs));
+          await saveEpisode(novelId, chapterToUse, JSON.stringify(translatedList), JSON.stringify(paragraphs));
           
           setViewerParagraphs(combinedList);
           setTransProgress(100);
@@ -374,6 +398,56 @@ function App() {
     } finally {
       setIsTranslating(false);
       getCacheStatistics().then(setCacheStats);
+    }
+  };
+
+  // 수동 번역 시작 버튼 트리거
+  const handleTranslateStart = () => {
+    triggerTranslationFlow(inputUrl, transMode, transMode === 'viewer' ? activeViewerChapter : null);
+  };
+
+  // [심리스 자동 서핑 & 리더기 스위칭 시스템 (11단계 핵심)]
+  // iframe 내부에서 임의의 링크(a 태그) 클릭이 일어났을 때, 부모가 낚아채어 동적 리디렉션 처리하는 핵심 핸들러
+  const handleIframeNavigate = (clickedUrl) => {
+    const originalAbsoluteUrl = resolveAbsoluteUrl(inputUrlRef.current, clickedUrl);
+    
+    // 만약 클릭된 URL이 소설의 상세 화수 본문 패턴에 매칭된다면
+    if (isNovelEpisodeUrl(originalAbsoluteUrl)) {
+      const detectedChapter = detectChapterFromUrl(originalAbsoluteUrl);
+      setInputUrl(originalAbsoluteUrl);
+      setTransMode('viewer');
+      setActiveViewerChapter(detectedChapter);
+      
+      // 리더기 뷰어로 출력모드를 자동 스위칭하여 번역 즉시 개시!
+      triggerTranslationFlow(originalAbsoluteUrl, 'viewer', detectedChapter);
+    } else {
+      // 본문이 아닌 다른 목차/카테고리/목록 링크라면 목록 번역 상태를 유지하면서 해당 URL 번역 실행
+      setInputUrl(originalAbsoluteUrl);
+      setTransMode('page');
+      triggerTranslationFlow(originalAbsoluteUrl, 'page');
+    }
+  };
+
+  // iframe 로드 완료 시 이벤트 캡처 주입 (동일 출처 샌드박스로 인해 DOM 리스너 즉시 연동 완료)
+  const handleIframeLoad = (e) => {
+    try {
+      const iframe = e.target;
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+      if (!iframeDoc) return;
+
+      const links = iframeDoc.getElementsByTagName('a');
+      for (let link of links) {
+        link.addEventListener('click', (event) => {
+          // 원래의 브라우저 기본 이동을 차단하고, 부모 핸들러로 신호를 전송
+          event.preventDefault();
+          const targetHref = link.href;
+          if (targetHref) {
+            handleIframeNavigate(targetHref);
+          }
+        });
+      }
+    } catch (err) {
+      console.warn("Iframe click capture bypassed (Same-Origin restriction fallback):", err);
     }
   };
 
@@ -567,7 +641,7 @@ function App() {
                   value={selectedLang} 
                   onChange={(e) => {
                     setSelectedLang(e.target.value);
-                    setSelectedPreset('default'); // 언어 바뀔 때 프리셋 default 복원
+                    setSelectedPreset('default');
                   }}
                   style={{
                     backgroundColor: '#181825', border: '1px solid #313244', borderRadius: '8px', padding: '8px', color: '#cdd6f4'
@@ -728,10 +802,12 @@ function App() {
                 ← 번역창으로
               </button>
               <span style={{ fontSize: '13px', color: '#a6e3a1', display: 'flex', alignItems: 'center' }}>✓ 목록 번역 완료 (레이아웃 보존)</span>
+              {isTranslating && <span style={{ fontSize: '12px', color: '#cba6f7', marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>🔄 신규 페이지 백그라운드 번역 중... ({transProgress}%)</span>}
             </div>
             <iframe 
               srcDoc={novelHtmlResult}
               title="Page Translation Result"
+              onLoad={handleIframeLoad}
               style={{
                 flex: 1,
                 border: '1px solid #313244',
