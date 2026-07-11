@@ -146,14 +146,34 @@ export function extractNovelContent(rawHtml, url) {
     }
   } else if (url.includes('jjwxc')) {
     // 진강문학성은 PC 버전 <div id="novelcontent">, 모바일 버전 .noveltext, .novelcontent, #content, <td> 등에 들어있음
-    const contentArea = doc.querySelector('#novelcontent') || 
-                        doc.querySelector('.novelcontent') || 
-                        doc.querySelector('.noveltext') || 
-                        doc.querySelector('#content') ||
-                        doc.querySelector('td.noveltext');
+    let contentArea = doc.querySelector('#novelcontent') || 
+                      doc.querySelector('.novelcontent') || 
+                      doc.querySelector('.noveltext') || 
+                      doc.querySelector('#content') ||
+                      doc.querySelector('td.noveltext');
+
+    // [m.jjwxc.net 모바일 패치 (33단계)]
+    // 모바일 진강문학성은 뚜렷한 content ID가 없으며, b.module 클래스 div들 중 텍스트가 가장 긴 영역에 소설 본문이 저장됩니다.
+    if (!contentArea && (url.includes('m.jjwxc.net') || url.includes('m.jjwxc'))) {
+      const candidates = doc.querySelectorAll('.b.module, div[class*="module"], .note_main');
+      let longestDiv = null;
+      let maxLen = 0;
+      candidates.forEach(el => {
+        // 내비게이션 태그 노이즈 걷어낸 순수 텍스트 길이를 판별
+        const textLen = el.textContent?.trim().length || 0;
+        if (textLen > maxLen) {
+          maxLen = textLen;
+          longestDiv = el;
+        }
+      });
+      if (longestDiv && maxLen > 300) {
+        contentArea = longestDiv;
+      }
+    }
+
     if (contentArea) {
       // 본문 영역 내의 불필요한 내비게이션 노드(이전화/다음화/돌아가기 링크 등) 원천 소거
-      const navSelects = ['.nav', '.novel_nav', 'a', 'style', 'script'];
+      const navSelects = ['.nav', '.novel_nav', 'a', 'style', 'script', '#comment_list_new', '.recommend_novel_box'];
       navSelects.forEach(sel => {
         contentArea.querySelectorAll(sel).forEach(el => el.remove());
       });
