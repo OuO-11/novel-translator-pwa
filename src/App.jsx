@@ -838,30 +838,23 @@ function App() {
                 position: 'sticky',
                 top: '55px',
                 zIndex: 5,
-                backgroundColor: '#a6d189',
-                color: '#11111b',
+                backgroundColor: '#222922',
+                color: '#a6d189',
+                border: '1px solid #3d4f3d',
                 padding: '10px 16px',
                 borderRadius: '12px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 fontWeight: 'bold',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                fontSize: '13px',
-                animation: 'pulse 1.5s infinite'
+                boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                fontSize: '13px'
               }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <RefreshCw style={{ animation: 'spin 1.2s linear infinite' }} size={16} />
                   실시간 백그라운드 번역 진행 중...
                 </span>
                 <span>{transProgress}% 완료</span>
-                <style>{`
-                  @keyframes pulse {
-                    0% { transform: scale(1); }
-                    50% { transform: scale(1.02); }
-                    100% { transform: scale(1); }
-                  }
-                `}</style>
               </div>
             )}
 
