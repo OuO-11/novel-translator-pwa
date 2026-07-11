@@ -34,8 +34,8 @@ const DEFAULT_BASE_PROMPTS = {
 // 리더기 테마 및 스타일 기본값 정의 (리디/카카페 감성의 웜 다크 테마 기본 장착)
 const DEFAULT_READER_SETTINGS = {
   fontFamily: 'system-ui',
-  fontColor: '#e2e4ed',
-  bgColor: '#191919',
+  fontColor: '#f0f0f5',
+  bgColor: '#111111',
   opacity: 45,
   fontSize: 17,
   fontWeight: 400,
@@ -289,6 +289,69 @@ function App() {
       url.match(/\/chapters\/(\d+)/i) ||
       url.match(/\/(\d+)(?:\.html)?\/?$/i)
     );
+  };
+
+  // 신규 프롬프트 프리셋 직접 추가 기능 (38단계: 수정 모드 분기 통합)
+  const handleAddCustomPreset = () => {
+    if (!newPresetName) {
+      return alert('프리셋 이름을 입력해 주세요.');
+    }
+    // 수정 모드: 기존 presetId를 덮어씁니다
+    if (editingPresetId && editingPresetId !== 'default') {
+      try {
+        const updatedTree = savePreset(selectedLang, editingPresetId, newPresetName, newPresetContent);
+        setPromptsTree(updatedTree);
+        setEditingPresetId(null);
+        setNewPresetName('');
+        setNewPresetContent('');
+        alert('프리셋이 수정 저장되었습니다.');
+      } catch (e) {
+        alert(e.message);
+      }
+      return;
+    }
+    // 신규 생성 모드
+    if (!newPresetContent) {
+      return alert('프리셋 내용을 입력해 주세요.');
+    }
+    const presetId = 'custom_' + Date.now();
+    try {
+      const updatedTree = savePreset(selectedLang, presetId, newPresetName, newPresetContent);
+      setPromptsTree(updatedTree);
+      setSelectedPreset(presetId);
+      setNewPresetName('');
+      setNewPresetContent('');
+      alert('새로운 프롬프트 템플릿이 성공적으로 저장되었습니다!');
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  // 프롬프트 프리셋 삭제 기능
+  const handleDeletePreset = (presetId) => {
+    if (presetId === 'default') {
+      return alert('기본 프리셋은 삭제할 수 없습니다.');
+    }
+    if (window.confirm('이 프롬프트 프리셋을 삭제하시겠습니까?')) {
+      const updatedTree = deletePreset(selectedLang, presetId);
+      setPromptsTree(updatedTree);
+      setSelectedPreset('default');
+      setEditingPresetId(null);
+      if (editingPresetId === presetId) {
+        setNewPresetName('');
+        setNewPresetContent('');
+      }
+    }
+  };
+
+  // [38단계] 프리셋 클릭 시 하단 폼에 내용 채우기 (default 제외)
+  const handleLoadPresetToForm = (presetId) => {
+    if (presetId === 'default') return;
+    const preset = currentPresets[presetId];
+    if (!preset) return;
+    setEditingPresetId(presetId);
+    setNewPresetName(preset.name || '');
+    setNewPresetContent(preset.content || '');
   };
 
   // iframe 내부 상대 경로를 원본 사이트 절대 경로로 매핑 복구
@@ -1457,94 +1520,83 @@ function App() {
                 </button>
               </div>
 
-              {/* 현재 등록된 프리셋 리스트 목록 및 삭제 기능 */}
+              {/* 현재 등록된 프리셋 리스트 - 클릭 시 하단 폼에 내용 로드 */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '12px', color: '#a5adce' }}>현재 등록된 추가 프리셋</label>
+                <label style={{ fontSize: '12px', color: '#a5adce' }}>현재 등록된 추가 프리셋 (클릭하면 수정)</label>
                 {Object.keys(currentPresets).map(presetId => (
-                  <div key={presetId} style={{ backgroundColor: '#222822', borderRadius: '8px', overflow: 'hidden' }}>
-                    {/* 프리셋 헤더 행 */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px' }}>
-                      <span style={{ fontSize: '13px', flex: 1 }}>
-                        {presetId === 'default' ? '🔒 ' : ''}{currentPresets[presetId].name}
-                      </span>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        {/* 내용 보기/수정 토글 버튼 */}
-                        <button
-                          onClick={() => handleTogglePresetEdit(presetId)}
-                          style={{ background: 'none', border: '1px solid #444', color: '#a5adce', cursor: 'pointer', borderRadius: '4px', padding: '2px 8px', fontSize: '11px' }}
-                        >
-                          {editingPresetId === presetId ? '닫기' : '내용 보기'}
-                        </button>
-                        {/* default는 삭제 버튼 없음 */}
-                        {presetId !== 'default' && (
-                          <button
-                            onClick={() => handleDeletePreset(presetId)}
-                            style={{ background: 'none', border: 'none', color: '#e78284', cursor: 'pointer', fontSize: '11px' }}
-                          >
-                            삭제
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {/* 내용 확인/수정 패널 (toggles open) */}
-                    {editingPresetId === presetId && (
-                      <div style={{ padding: '8px 12px 12px', borderTop: '1px solid #2d2d2d', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <textarea
-                          rows={5}
-                          value={editingPresetContent}
-                          onChange={(e) => setEditingPresetContent(e.target.value)}
-                          readOnly={presetId === 'default'}
-                          placeholder={presetId === 'default' ? '기본 프리셋은 내용이 없습니다 (번역 미적용)' : ''}
-                          style={{
-                            backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '6px',
-                            padding: '8px', color: '#e2e4ed', fontSize: '12px', lineHeight: '1.6',
-                            resize: 'vertical', opacity: presetId === 'default' ? 0.6 : 1
-                          }}
-                        />
-                        {presetId !== 'default' && (
-                          <button
-                            onClick={() => handleSaveEditPreset(presetId)}
-                            style={{ backgroundColor: '#83c5be', border: 'none', borderRadius: '6px', padding: '6px 10px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}
-                          >
-                            저장
-                          </button>
-                        )}
-                      </div>
+                  <div
+                    key={presetId}
+                    onClick={() => handleLoadPresetToForm(presetId)}
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      backgroundColor: editingPresetId === presetId ? '#1a2a1a' : '#222822',
+                      border: editingPresetId === presetId ? '1px solid #81c784' : '1px solid transparent',
+                      borderRadius: '8px', padding: '8px 12px',
+                      cursor: presetId !== 'default' ? 'pointer' : 'default'
+                    }}
+                  >
+                    <span style={{ fontSize: '13px', flex: 1, color: editingPresetId === presetId ? '#81c784' : '#e2e4ed' }}>
+                      {currentPresets[presetId].name}
+                    </span>
+                    {presetId !== 'default' && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeletePreset(presetId); }}
+                        style={{ background: 'none', border: 'none', color: '#e78284', cursor: 'pointer', fontSize: '11px', padding: '2px 6px' }}
+                      >
+                        삭제
+                      </button>
                     )}
                   </div>
                 ))}
               </div>
 
-              {/* 신규 등록 폼 */}
+              {/* 신규 등록 / 수정 폼 */}
               <div style={{ borderTop: '1px solid #222822', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <label style={{ fontSize: '12px', color: '#a5adce' }}>새 추가 지침 추가</label>
-                <input 
-                  type="text" placeholder="예: 코난 덕질용 번역체" 
+                <label style={{ fontSize: '12px', color: editingPresetId ? '#81c784' : '#a5adce' }}>
+                  {editingPresetId ? '프리셋 수정 중 — 이름/내용 변경 후 저장' : '새 지침 추가'}
+                </label>
+                <input
+                  type="text" placeholder="예: 코난 덕질용 번역체"
                   value={newPresetName}
                   onChange={(e) => setNewPresetName(e.target.value)}
                   style={{
-                    backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '8px', color: '#e2e4ed', fontSize: '12px'
+                    backgroundColor: '#222822',
+                    border: editingPresetId ? '1px solid #81c784' : 'none',
+                    borderRadius: '6px', padding: '8px', color: '#e2e4ed', fontSize: '12px'
                   }}
                 />
-                <textarea 
-                  rows={3} 
+                <textarea
+                  rows={3}
                   placeholder="특정 작품 고유명사 매핑 규칙을 한글/영어로 작성하세요. (예: 江户川柯南 -> 코난)"
                   value={newPresetContent}
                   onChange={(e) => setNewPresetContent(e.target.value)}
                   style={{
-                    backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '8px', color: '#e2e4ed', fontSize: '12px'
+                    backgroundColor: '#222822',
+                    border: editingPresetId ? '1px solid #81c784' : 'none',
+                    borderRadius: '6px', padding: '8px', color: '#e2e4ed', fontSize: '12px'
                   }}
                 />
-                <button 
-                  onClick={handleAddCustomPreset}
-                  style={{
-                    backgroundColor: '#83c5be', border: 'none', borderRadius: '8px', padding: '10px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px'
-                  }}
-                >
-                  추가 지침 프리셋 등록
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {editingPresetId && (
+                    <button
+                      onClick={() => { setEditingPresetId(null); setNewPresetName(''); setNewPresetContent(''); }}
+                      style={{ flex: 1, backgroundColor: '#333', border: 'none', borderRadius: '8px', padding: '10px', color: '#e2e4ed', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}
+                    >
+                      취소
+                    </button>
+                  )}
+                  <button
+                    onClick={handleAddCustomPreset}
+                    style={{
+                      flex: 2, backgroundColor: '#83c5be', border: 'none', borderRadius: '8px', padding: '10px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px'
+                    }}
+                  >
+                    {editingPresetId ? '수정 저장' : '지침 프리셋 등록'}
+                  </button>
+                </div>
               </div>
             </div>
+
 
             {/* colomo.dev 연동 리더기 커스텀 대시보드 */}
             
