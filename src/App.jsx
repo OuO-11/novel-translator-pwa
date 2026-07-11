@@ -41,7 +41,10 @@ function App() {
     return cached ? JSON.parse(cached) : ['gemini-3.1-flash-lite'];
   });
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-lite');
-  const [promptsTree, setPromptsTree] = useState({});
+  
+  // 첫 렌더링 시점의 옵션 데이터 불일치(TypeError)를 방지하기 위해 
+  // 동기식으로 미리 작성된 트리 데이터를 useState 초기값으로 즉시 바인딩 (안정성 극대화)
+  const [promptsTree, setPromptsTree] = useState(() => getPromptsTree());
   const [selectedLang, setSelectedLang] = useState('chinese'); // 번역 언어 모드 (chinese, japanese)
   const [selectedPreset, setSelectedPreset] = useState('default'); // 프롬프트 프리셋
   const [cacheStats, setCacheStats] = useState({ totalNovels: 0, totalCachedEpisodes: 0 });
@@ -310,6 +313,40 @@ function App() {
       getCacheStatistics().then(setCacheStats);
     }
   };
+
+  // DB와 가상 트리가 연결되지 않은 상태의 렌더링 충돌을 원천 방어하기 위한 로딩 지연 가드 (안정성 보장)
+  if (isLoading) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: '#1e1e2e',
+        color: '#cdd6f4',
+        fontFamily: 'system-ui, -apple-system, sans-serif'
+      }}>
+        <div style={{
+          border: '4px solid #313244',
+          borderTop: '4px solid #89b4fa',
+          borderRadius: '50%',
+          width: '32px',
+          height: '32px',
+          animation: 'spin 1s linear infinite',
+          marginBottom: '16px'
+        }} />
+        <span style={{ fontSize: '14px', color: '#a6adc8' }}>로컬 데이터베이스 연결 중...</span>
+        {/* CSS 키프레임 인라인 스타일로 스핀 회전 효과 선언 */}
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   // 현재 언어 분류에 속한 프리셋 목록
   const currentPresets = promptsTree[selectedLang]?.presets || {};
@@ -974,7 +1011,7 @@ function App() {
         {[
           { id: 'library', label: '보관함', icon: FolderHeart },
           { id: 'translate', label: '실시간번역', icon: BookOpen },
-          { id: 'presets', label: '번역 설정', icon: Star } // '설정/presets' 탭 명시화
+          { id: 'presets', label: '번역 설정', icon: Star }
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id || (tab.id === 'translate' && (activeTab === 'viewer' || activeTab === 'pageResult'));
