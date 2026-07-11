@@ -1,10 +1,33 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, Settings, FolderHeart, Star, Trash2, Plus, Download, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { BookOpen, Settings, FolderHeart, Star, Trash2, Plus, Download, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { openDB, saveNovel, getNovels, deleteNovel, saveEpisode, getEpisode, clearOldEpisodes, getCacheStatistics } from './db.js';
 import { getApiKeys, saveApiKeys, getActiveApiKey, fetchAvailableModels } from './apiRotator.js';
-import { getPromptsTree, savePreset, getPromptContent } from './promptManager.js';
+import { getPromptsTree, savePreset, deletePreset, getPromptContent } from './promptManager.js';
 import { translateFullPage, extractNovelContent } from './parser.js';
 import { downloadCachedEpisodes } from './downloader.js';
+
+// 리더기 테마 및 스타일 기본값 정의
+const DEFAULT_READER_SETTINGS = {
+  fontFamily: 'system-ui',
+  fontColor: '#cdd6f4',
+  bgColor: '#1e1e2e',
+  opacity: 40,
+  fontSize: 16,
+  fontWeight: 400,
+  paddingX: 20,
+  lineHeight: 1.8,
+  paragraphGap: 12,
+  textIndent: 0,
+  keepOriginalText: true,
+  removeTitle: false,
+  removeOriginalNewlines: false,
+  removeHtmlOnDownload: true,
+  googleTranslate: false,
+  googlePronunciation: false,
+  showOriginalFirst: false,
+  removeEmptyLines: true,
+  bottomSpacing: true
+};
 
 function App() {
   const [activeTab, setActiveTab] = useState('library');
@@ -14,27 +37,38 @@ function App() {
   // 설정 상태
   const [apiKeysInput, setApiKeysInput] = useState('');
   const [availableModels, setAvailableModels] = useState(() => {
-    // 1안 스펙: 로컬스토리지 캐시 우선 로드 (없다면 유저 지적 모델 gemini-3.1-flash-lite 기본값 제공)
     const cached = localStorage.getItem('noveltrans_cached_models');
     return cached ? JSON.parse(cached) : ['gemini-3.1-flash-lite'];
   });
   const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-lite');
   const [promptsTree, setPromptsTree] = useState({});
-  const [selectedLang, setSelectedLang] = useState('chinese');
-  const [selectedPreset, setSelectedPreset] = useState('default');
+  const [selectedLang, setSelectedLang] = useState('chinese'); // 번역 언어 모드 (chinese, japanese)
+  const [selectedPreset, setSelectedPreset] = useState('default'); // 프롬프트 프리셋
   const [cacheStats, setCacheStats] = useState({ totalNovels: 0, totalCachedEpisodes: 0 });
+
+  // 프롬프트 직접 추가 폼 상태
+  const [newPresetName, setNewPresetName] = useState('');
+  const [newPresetContent, setNewPresetContent] = useState('');
+
+  // 리더기 상세 커스텀 설정 상태
+  const [readerSettings, setReaderSettings] = useState(() => {
+    const cached = localStorage.getItem('noveltrans_reader_settings');
+    return cached ? JSON.parse(cached) : DEFAULT_READER_SETTINGS;
+  });
+  
+  // 아코디언 접기/열기 상태
+  const [showThemeCollapse, setShowThemeCollapse] = useState(true);
+  const [showMiscCollapse, setShowMiscCollapse] = useState(true);
 
   // 번역 입력 상태
   const [inputUrl, setInputUrl] = useState('');
-  const [transMode, setTransMode] = useState('viewer'); // 'page' or 'viewer'
+  const [transMode, setTransMode] = useState('viewer'); // 'page' (목록 번역) or 'viewer' (본문 뷰어)
   const [transProgress, setTransProgress] = useState(0);
   const [isTranslating, setIsTranslating] = useState(false);
 
   // 뷰어 및 렌더링 상태
   const [viewerTitle, setViewerTitle] = useState('');
   const [viewerParagraphs, setViewerParagraphs] = useState([]); // [{ original, translated }]
-  const [opacity, setOpacity] = useState(40); // 원문 투명도 (0% ~ 100%)
-  const [fontSize, setFontSize] = useState(16);
   const [novelHtmlResult, setNovelHtmlResult] = useState(''); // 목록 번역 html 결과
   const [activeViewerNovelId, setActiveViewerNovelId] = useState(null);
   const [activeViewerChapter, setActiveViewerChapter] = useState(1);
@@ -58,7 +92,7 @@ function App() {
         const stats = await getCacheStatistics();
         setCacheStats(stats);
 
-        // 첫 번째 API Key를 활용하여 구글 ListModels API 백그라운드 캐시 최신화 (1안 방식)
+        // 첫 번째 API Key를 활용하여 구글 ListModels API 백그라운드 캐시 최신화
         if (keys.length > 0) {
           loadModels(keys[0]);
         }
@@ -71,6 +105,37 @@ function App() {
     init();
   }, []);
 
+  // 리더기 커스텀 설정 변경 핸들러
+  const handleUpdateReaderSetting = (key, value) => {
+    const updated = { ...readerSettings, [key]: value };
+    setReaderSettings(updated);
+    localStorage.setItem('noveltrans_reader_settings', JSON.stringify(updated));
+  };
+
+  // URL에서 자동으로 화수(Chapter)를 파싱
+  const detectChapterFromUrl = (url) => {
+    if (!url) return 1;
+    const shukuMatch = url.match(/_(\d+)\.html/i);
+    if (shukuMatch) return parseInt(shukuMatch[1]);
+    const jjwxcMatch = url.match(/[?&]chapterid=(\d+)/i);
+    if (jjwxcMatch) return parseInt(jjwxcMatch[1]);
+    const ao3Match = url.match(/\/chapters\/(\d+)/i);
+    if (ao3Match) return parseInt(ao3Match[1]);
+    const genericMatch = url.match(/\/(\d+)(?:\.html)?\/?$/i);
+    if (genericMatch) return parseInt(genericMatch[1]);
+    return 1;
+  };
+
+  // URL 입력 변경 시 화수 자동 감지 동기화
+  const handleUrlChange = (e) => {
+    const url = e.target.value;
+    setInputUrl(url);
+    if (transMode === 'viewer') {
+      const detectedChapter = detectChapterFromUrl(url);
+      setActiveViewerChapter(detectedChapter);
+    }
+  };
+
   // API 호출을 통해 사용 가능한 모델 목록 갱신 및 캐싱
   const loadModels = async (key) => {
     if (!key) return;
@@ -78,29 +143,55 @@ function App() {
     if (fetchedList && fetchedList.length > 0) {
       setAvailableModels(fetchedList);
       localStorage.setItem('noveltrans_cached_models', JSON.stringify(fetchedList));
-      // 만약 기존에 선택했던 모델이 새 리스트에 없으면 첫 번째 모델로 세팅
       if (!fetchedList.includes(selectedModel)) {
         setSelectedModel(fetchedList[0]);
       }
     }
   };
 
-  // API Key 저장 및 모델 목록 리프레시
+  // 설정 저장 및 동적 모델 리프레시
   const handleSaveSettings = async () => {
     const keys = apiKeysInput.split('\n').map(k => k.trim()).filter(k => k.length > 0);
     saveApiKeys(keys);
-    alert('설정이 저장되었습니다. 입력하신 API Key로 최신 구글 무료 제공 모델 조회를 수행합니다.');
-    
-    // 저장과 동시에 모델 목록 동적 갱신 작동
+    alert('설정이 저장되었습니다. 최신 AI 모델을 동적으로 리프레시합니다.');
     if (keys.length > 0) {
       await loadModels(keys[0]);
     }
-    
     getCacheStatistics().then(setCacheStats);
   };
 
+  // 신규 프롬프트 프리셋 직접 추가 기능
+  const handleAddCustomPreset = () => {
+    if (!newPresetName || !newPresetContent) {
+      return alert('프리셋 이름과 프롬프트 본문을 입력해 주세요.');
+    }
+    const presetId = 'custom_' + Date.now();
+    try {
+      const updatedTree = savePreset(selectedLang, presetId, newPresetName, newPresetContent);
+      setPromptsTree(updatedTree);
+      setSelectedPreset(presetId);
+      setNewPresetName('');
+      setNewPresetContent('');
+      alert('새로운 프롬프트 템플릿이 성공적으로 저장되었습니다!');
+    } catch (e) {
+      alert(e.message);
+    }
+  };
+
+  // 프롬프트 프리셋 삭제 기능
+  const handleDeletePreset = (presetId) => {
+    if (presetId === 'default') {
+      return alert('기본 프리셋은 삭제할 수 없습니다.');
+    }
+    if (window.confirm('이 프롬프트 프리셋을 삭제하시겠습니까?')) {
+      const updatedTree = deletePreset(selectedLang, presetId);
+      setPromptsTree(updatedTree);
+      setSelectedPreset('default');
+    }
+  };
+
   // 소설 삭제
-  const handleDelete = async (id, title, e) => {
+  const handleDeleteNovel = async (id, title, e) => {
     e.stopPropagation();
     if (window.confirm(`[${title}] 소설과 로컬 캐시를 삭제하시겠습니까?`)) {
       await deleteNovel(id);
@@ -135,20 +226,16 @@ function App() {
     const systemPrompt = getPromptContent(selectedLang, selectedPreset);
 
     try {
-      // 1. 백엔드 프록시 서버에 HTML 요청
       setTransProgress(20);
       const res = await fetch(`/api/proxy?url=${encodeURIComponent(inputUrl)}`);
       if (!res.ok) throw new Error('CORS 프록시 서버 통신 실패');
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      // 소설 보관함에 자동 등록을 위한 정보 파싱
       const tempTitle = data.html.match(/<title>(.*?)<\/title>/i)?.[1] || '번역된 소설';
       const siteName = inputUrl.includes('52shuku') ? '52shuku' : inputUrl.includes('jjwxc') ? '진강문학성' : inputUrl.includes('ao3') ? 'AO3' : '기타';
 
-      // 2. 번역 분기 작동
       if (transMode === 'page') {
-        // 목록 번역 모드 (Full Page Mode)
         setTransProgress(40);
         const translatedHtml = await translateFullPage(data.html, systemPrompt, selectedModel, (progress) => {
           setTransProgress(40 + Math.round(progress * 0.6));
@@ -156,7 +243,6 @@ function App() {
         setNovelHtmlResult(translatedHtml);
         setActiveTab('pageResult');
       } else {
-        // 본문 뷰어 모드 (Reader Mode)
         setTransProgress(40);
         const { title, paragraphs } = extractNovelContent(data.html, inputUrl);
         setViewerTitle(title);
@@ -173,7 +259,6 @@ function App() {
         // 이미 캐시된 내용이 있는지 확인
         const cached = await getEpisode(novelId, activeViewerChapter);
         if (cached) {
-          // 캐시가 존재하면 번역 호출을 생략하고 즉시 렌더링
           const parsedLines = JSON.parse(cached.translatedText);
           const origLines = JSON.parse(cached.originalText || '[]');
           const formatted = parsedLines.map((t, i) => ({ translated: t, original: origLines[i] || '' }));
@@ -181,7 +266,6 @@ function App() {
           setTransProgress(100);
           setActiveTab('viewer');
         } else {
-          // 캐시가 없으면 문단별 번역 수행
           const translatedList = [];
           const combinedList = [];
           
@@ -201,7 +285,6 @@ function App() {
           setActiveTab('viewer');
         }
         
-        // 보관함 목록 갱신
         getNovels().then(setNovels);
       }
     } catch (err) {
@@ -212,7 +295,6 @@ function App() {
     }
   };
 
-  // 보관함에서 소설 클릭 시 즉시 실시간 번역창으로 연동
   const handleLoadNovel = (novel) => {
     setInputUrl(novel.url);
     setActiveViewerNovelId(novel.id);
@@ -221,7 +303,6 @@ function App() {
     setActiveTab('translate');
   };
 
-  // 캐시 일괄 클리어
   const handleClearCache = async () => {
     if (window.confirm('최근 30일 동안 읽지 않은 모든 번역 캐시 데이터를 소거하시겠습니까?')) {
       await clearOldEpisodes(30);
@@ -229,6 +310,9 @@ function App() {
       getCacheStatistics().then(setCacheStats);
     }
   };
+
+  // 현재 언어 분류에 속한 프리셋 목록
+  const currentPresets = promptsTree[selectedLang]?.presets || {};
 
   return (
     <div style={{
@@ -264,21 +348,6 @@ function App() {
           <span style={{ fontSize: '20px', fontWeight: 'bold', letterSpacing: '-0.5px' }}>
             Novel<span style={{ color: '#89b4fa' }}>Trans</span>
           </span>
-        </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-          <button 
-            onClick={() => setActiveTab('settings')}
-            style={{
-              background: activeTab === 'settings' ? '#313244' : 'none',
-              border: 'none',
-              color: activeTab === 'settings' ? '#89b4fa' : '#a6adc8',
-              padding: '8px',
-              borderRadius: '8px',
-              cursor: 'pointer'
-            }}
-          >
-            <Settings size={20} />
-          </button>
         </div>
       </header>
 
@@ -340,7 +409,7 @@ function App() {
                       <Download size={18} />
                     </button>
                     <button 
-                      onClick={(e) => handleDelete(novel.id, novel.title, e)}
+                      onClick={(e) => handleDeleteNovel(novel.id, novel.title, e)}
                       style={{ background: 'none', border: 'none', color: '#f38ba8', padding: '6px', cursor: 'pointer' }}
                       title="삭제"
                     >
@@ -364,7 +433,7 @@ function App() {
                 type="text" 
                 placeholder="예: https://www.52shuku.net/bl/..." 
                 value={inputUrl}
-                onChange={(e) => setInputUrl(e.target.value)}
+                onChange={handleUrlChange}
                 style={{
                   backgroundColor: '#181825',
                   border: '1px solid #313244',
@@ -379,16 +448,19 @@ function App() {
             {/* 번역 옵션 그룹 */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '12px', color: '#a6adc8' }}>번역 모드</label>
+                <label style={{ fontSize: '12px', color: '#a6adc8' }}>번역 모드 (언어 선택)</label>
                 <select 
-                  value={transMode} 
-                  onChange={(e) => setTransMode(e.target.value)}
+                  value={selectedLang} 
+                  onChange={(e) => {
+                    setSelectedLang(e.target.value);
+                    setSelectedPreset('default'); // 언어 바뀔 때 프리셋 default 복원
+                  }}
                   style={{
                     backgroundColor: '#181825', border: '1px solid #313244', borderRadius: '8px', padding: '8px', color: '#cdd6f4'
                   }}
                 >
-                  <option value="viewer">본문 뷰어 (소설독서용)</option>
-                  <option value="page">목록 번역 (원본보존용)</option>
+                  <option value="chinese">중국어 번역기</option>
+                  <option value="japanese">일본어 번역기</option>
                 </select>
               </div>
               
@@ -401,26 +473,42 @@ function App() {
                     backgroundColor: '#181825', border: '1px solid #313244', borderRadius: '8px', padding: '8px', color: '#cdd6f4'
                   }}
                 >
-                  <option value="default">중국어 기본 소설 번역</option>
-                  <option value="conan">코난 팬덤 특화 번역</option>
-                  <option value="naruto">나루토 팬덤 특화 번역</option>
+                  {Object.keys(currentPresets).map(presetId => (
+                    <option key={presetId} value={presetId}>
+                      {currentPresets[presetId].name}
+                    </option>
+                  ))}
                 </select>
               </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '12px', color: '#a6adc8' }}>출력 모드 (뷰어 형태)</label>
+              <select 
+                value={transMode} 
+                onChange={(e) => setTransMode(e.target.value)}
+                style={{
+                  backgroundColor: '#181825', border: '1px solid #313244', borderRadius: '8px', padding: '8px', color: '#cdd6f4'
+                }}
+              >
+                <option value="viewer">본문 리더기 (소설독서용)</option>
+                <option value="page">목록/웹페이지 번역 (원본보존용)</option>
+              </select>
             </div>
 
             {/* 본문 뷰어일 시 화수 조절 */}
             {transMode === 'viewer' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#181825', padding: '12px', borderRadius: '10px', border: '1px solid #313244' }}>
-                <span style={{ fontSize: '13px', color: '#a6adc8' }}>읽을 화수 설정</span>
+                <span style={{ fontSize: '13px', color: '#a6adc8' }}>소설 화수 (URL 분석 자동 감지됨)</span>
                 <input 
                   type="number" 
                   value={activeViewerChapter} 
                   onChange={(e) => setActiveViewerChapter(Math.max(1, parseInt(e.target.value) || 1))}
                   style={{
-                    width: '70px', backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4', textAlign: 'center'
+                    width: '70px', backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4', textAlign: 'center', fontWeight: 'bold'
                   }}
                 />
-                <span style={{ fontSize: '12px', color: '#89b4fa' }}>(IndexedDB 캐시에 자동 저장됨)</span>
+                <span style={{ fontSize: '12px', color: '#89b4fa' }}>(필요 시 수동 조절 가능)</span>
               </div>
             )}
 
@@ -471,32 +559,41 @@ function App() {
               </div>
             </div>
 
-            {/* 뷰어 설정 컨트롤러 */}
-            <div style={{ backgroundColor: '#181825', padding: '12px 16px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>원문 투명도 대조 ({opacity}%)</span>
-                <input 
-                  type="range" min="0" max="100" value={opacity} 
-                  onChange={(e) => setOpacity(e.target.value)}
-                  style={{ width: '150px' }}
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>글자 크기 ({fontSize}px)</span>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button onClick={() => setFontSize(Math.max(12, fontSize - 2))} style={{ backgroundColor: '#313244', border: 'none', color: '#cdd6f4', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>A-</button>
-                  <button onClick={() => setFontSize(Math.min(30, fontSize + 2))} style={{ backgroundColor: '#313244', border: 'none', color: '#cdd6f4', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>A+</button>
-                </div>
-              </div>
-            </div>
-
-            {/* 소설 내용 */}
-            <div style={{ fontSize: `${fontSize}px`, lineHeight: '1.8', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* colomo.dev 기반 리더기 커스텀 및 대조 독서 뷰어 렌더링 */}
+            <div style={{ 
+              fontFamily: readerSettings.fontFamily,
+              color: readerSettings.fontColor,
+              backgroundColor: readerSettings.bgColor,
+              fontSize: `${readerSettings.fontSize}px`,
+              fontWeight: readerSettings.fontWeight,
+              lineHeight: readerSettings.lineHeight,
+              paddingLeft: `${readerSettings.paddingX}px`,
+              paddingRight: `${readerSettings.paddingX}px`,
+              paddingTop: '20px',
+              paddingBottom: readerSettings.bottomSpacing ? '100px' : '20px',
+              borderRadius: '16px',
+              border: '1px solid #313244',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: `${readerSettings.paragraphGap}px`
+            }}>
               {viewerParagraphs.map((p, idx) => (
-                <div key={idx} style={{ borderBottom: '1px solid #1e1e2e', paddingBottom: '10px' }}>
-                  <p style={{ margin: '0 0 6px 0', color: '#cdd6f4' }}>{p.translated}</p>
-                  {p.original && (
-                    <p style={{ margin: 0, color: '#a6adc8', fontSize: '0.9em', opacity: opacity / 100 }}>
+                <div key={idx} style={{ 
+                  textIndent: `${readerSettings.textIndent}em`,
+                  borderBottom: '1px solid rgba(49, 50, 68, 0.3)', 
+                  paddingBottom: '12px' 
+                }}>
+                  {/* 번역문 출력 */}
+                  <p style={{ margin: 0, color: readerSettings.fontColor }}>{p.translated}</p>
+                  
+                  {/* 원문 출력 (한자/일본어 병기 유지 스위치가 켜진 경우에만 렌더링) */}
+                  {readerSettings.keepOriginalText && p.original && (
+                    <p style={{ 
+                      margin: '6px 0 0 0', 
+                      color: readerSettings.fontColor, 
+                      fontSize: '0.85em', 
+                      opacity: readerSettings.opacity / 100 
+                    }}>
                       {p.original}
                     </p>
                   )}
@@ -518,7 +615,6 @@ function App() {
               </button>
               <span style={{ fontSize: '13px', color: '#a6e3a1', display: 'flex', alignItems: 'center' }}>✓ 목록 번역 완료 (레이아웃 보존)</span>
             </div>
-            {/* 번역 완료된 가상 HTML을 iframe 구조에 주입하여 완벽하게 렌더링 */}
             <iframe 
               srcDoc={novelHtmlResult}
               title="Page Translation Result"
@@ -526,53 +622,326 @@ function App() {
                 flex: 1,
                 border: '1px solid #313244',
                 borderRadius: '12px',
-                backgroundColor: '#ffffff', // 원본 사이트 가시성을 위한 흰 배경 지정
+                backgroundColor: '#ffffff',
                 width: '100%'
               }}
             />
           </div>
         )}
 
-        {/* 탭 5: 설정 (Settings) */}
-        {activeTab === 'settings' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>설정 & 디바이스 관리</h3>
+        {/* 탭 5: 설정 & 프롬프트/테마 커스텀 대시보드 (Settings/Presets) */}
+        {activeTab === 'presets' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>번역 설정 및 커스터마이징</h3>
 
-            {/* API Key 관리 */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', color: '#a6adc8' }}>구글 Gemini API Key 목록 (줄바꿈 구분)</label>
-              <textarea 
-                rows={4}
-                value={apiKeysInput}
-                onChange={(e) => setApiKeysInput(e.target.value)}
-                placeholder="여기에 API Key를 입력하세요&#10;여러 개인 경우 엔터(줄바꿈)로 구분합니다."
-                style={{
-                  backgroundColor: '#181825', border: '1px solid #313244', borderRadius: '10px', padding: '12px', color: '#cdd6f4', fontFamily: 'monospace'
-                }}
-              />
-            </div>
+            {/* 구글 API Key 및 모델 설정 */}
+            <div style={{ backgroundColor: '#181825', padding: '16px', borderRadius: '14px', border: '1px solid #313244', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <h4 style={{ margin: 0, fontSize: '14px', color: '#89b4fa' }}>🔑 API & AI 모델 세팅</h4>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '12px', color: '#a6adc8' }}>구글 API Key 목록 (줄바꿈 구분)</label>
+                <textarea 
+                  rows={2}
+                  value={apiKeysInput}
+                  onChange={(e) => setApiKeysInput(e.target.value)}
+                  placeholder="API Key를 엔터로 구분하여 입력하세요."
+                  style={{
+                    backgroundColor: '#313244', border: 'none', borderRadius: '8px', padding: '10px', color: '#cdd6f4', fontFamily: 'monospace', fontSize: '12px'
+                  }}
+                />
+              </div>
 
-            {/* AI 모델 설정 - 1안 스펙으로 동적 바인딩 렌더링 */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', color: '#a6adc8' }}>사용할 AI 모델 (무료 Tier 권장)</label>
-              <select 
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '12px', color: '#a6adc8' }}>사용할 AI 모델</label>
+                <select 
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  style={{
+                    backgroundColor: '#313244', border: 'none', borderRadius: '8px', padding: '10px', color: '#cdd6f4', fontSize: '13px'
+                  }}
+                >
+                  {availableModels.map(model => (
+                    <option key={model} value={model}>
+                      {model} {model === 'gemini-3.1-flash-lite' ? '(최신 무료권장)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <button 
+                onClick={handleSaveSettings}
                 style={{
-                  backgroundColor: '#181825', border: '1px solid #313244', borderRadius: '10px', padding: '12px', color: '#cdd6f4'
+                  backgroundColor: '#89b4fa', border: 'none', borderRadius: '8px', padding: '10px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px'
                 }}
               >
-                {availableModels.map(model => (
-                  <option key={model} value={model}>
-                    {model} {model === 'gemini-3.1-flash-lite' ? '(최신 권장)' : ''}
-                  </option>
-                ))}
-              </select>
+                API/모델 설정 저장
+              </button>
             </div>
 
-            {/* 캐시 용량 관리 */}
-            <div style={{ backgroundColor: '#181825', padding: '16px', borderRadius: '12px', border: '1px solid #313244', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <h4 style={{ margin: 0, fontSize: '14px', color: '#89b4fa' }}>로컬 보관함 용량 최적화</h4>
+            {/* 프롬프트 템플릿 관리 영역 */}
+            <div style={{ backgroundColor: '#181825', padding: '16px', borderRadius: '14px', border: '1px solid #313244', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <h4 style={{ margin: 0, fontSize: '14px', color: '#cba6f7' }}>📝 프롬프트 템플릿 추가/관리</h4>
+              
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button 
+                  onClick={() => setSelectedLang('chinese')} 
+                  style={{
+                    flex: 1, padding: '8px', borderRadius: '6px', border: 'none',
+                    backgroundColor: selectedLang === 'chinese' ? '#89b4fa' : '#313244',
+                    color: selectedLang === 'chinese' ? '#11111b' : '#cdd6f4',
+                    fontWeight: 'bold', cursor: 'pointer'
+                  }}
+                >
+                  중국어 프리셋
+                </button>
+                <button 
+                  onClick={() => setSelectedLang('japanese')} 
+                  style={{
+                    flex: 1, padding: '8px', borderRadius: '6px', border: 'none',
+                    backgroundColor: selectedLang === 'japanese' ? '#89b4fa' : '#313244',
+                    color: selectedLang === 'japanese' ? '#11111b' : '#cdd6f4',
+                    fontWeight: 'bold', cursor: 'pointer'
+                  }}
+                >
+                  일본어 프리셋
+                </button>
+              </div>
+
+              {/* 현재 등록된 프리셋 리스트 목록 및 삭제 기능 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label style={{ fontSize: '12px', color: '#a6adc8' }}>현재 등록된 프리셋</label>
+                {Object.keys(currentPresets).map(presetId => (
+                  <div key={presetId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#313244', padding: '8px 12px', borderRadius: '8px' }}>
+                    <span style={{ fontSize: '13px' }}>{currentPresets[presetId].name}</span>
+                    {presetId !== 'default' && (
+                      <button 
+                        onClick={() => handleDeletePreset(presetId)}
+                        style={{ background: 'none', border: 'none', color: '#f38ba8', cursor: 'pointer' }}
+                      >
+                        삭제
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* 신규 등록 폼 */}
+              <div style={{ borderTop: '1px solid #313244', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label style={{ fontSize: '12px', color: '#a6adc8' }}>새 프롬프트 추가</label>
+                <input 
+                  type="text" placeholder="예: 코난 덕질용 번역체" 
+                  value={newPresetName}
+                  onChange={(e) => setNewPresetName(e.target.value)}
+                  style={{
+                    backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '8px', color: '#cdd6f4', fontSize: '12px'
+                  }}
+                />
+                <textarea 
+                  rows={3} 
+                  placeholder="Gemini에게 지시할 번역 스타일 본문을 한글/영어로 적어주세요."
+                  value={newPresetContent}
+                  onChange={(e) => setNewPresetContent(e.target.value)}
+                  style={{
+                    backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '8px', color: '#cdd6f4', fontSize: '12px'
+                  }}
+                />
+                <button 
+                  onClick={handleAddCustomPreset}
+                  style={{
+                    backgroundColor: '#cba6f7', border: 'none', borderRadius: '8px', padding: '10px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px'
+                  }}
+                >
+                  프리셋 추가
+                </button>
+              </div>
+            </div>
+
+            {/* colomo.dev 연동 리더기 커스텀 대시보드 */}
+            
+            {/* 아코디언 1: 테마 설정 */}
+            <div style={{ backgroundColor: '#181825', borderRadius: '14px', border: '1px solid #313244', overflow: 'hidden' }}>
+              <div 
+                onClick={() => setShowThemeCollapse(!showThemeCollapse)}
+                style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: showThemeCollapse ? '1px solid #313244' : 'none' }}
+              >
+                <h4 style={{ margin: 0, fontSize: '14px', color: '#a6e3a1', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  ▼ 테마 설정
+                </h4>
+                {showThemeCollapse ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </div>
+              
+              {showThemeCollapse && (
+                <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
+                  
+                  {/* 인풋 스타일 컨트롤 Grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: '#a6adc8' }}>폰트 종류 (css)</label>
+                      <input 
+                        type="text" value={readerSettings.fontFamily} 
+                        onChange={(e) => handleUpdateReaderSetting('fontFamily', e.target.value)}
+                        style={{ backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: '#a6adc8' }}>글자 색상</label>
+                      <input 
+                        type="text" value={readerSettings.fontColor} 
+                        onChange={(e) => handleUpdateReaderSetting('fontColor', e.target.value)}
+                        style={{ backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: '#a6adc8' }}>배경 색상</label>
+                      <input 
+                        type="text" value={readerSettings.bgColor} 
+                        onChange={(e) => handleUpdateReaderSetting('bgColor', e.target.value)}
+                        style={{ backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: '#a6adc8' }}>글자 크기 (px)</label>
+                      <input 
+                        type="number" value={readerSettings.fontSize} 
+                        onChange={(e) => handleUpdateReaderSetting('fontSize', parseInt(e.target.value) || 16)}
+                        style={{ backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: '#a6adc8' }}>글자 두께 (weight)</label>
+                      <input 
+                        type="number" step="100" min="100" max="900" value={readerSettings.fontWeight} 
+                        onChange={(e) => handleUpdateReaderSetting('fontWeight', parseInt(e.target.value) || 400)}
+                        style={{ backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: '#a6adc8' }}>좌우 간격 (px)</label>
+                      <input 
+                        type="number" value={readerSettings.paddingX} 
+                        onChange={(e) => handleUpdateReaderSetting('paddingX', parseInt(e.target.value) || 20)}
+                        style={{ backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: '#a6adc8' }}>줄간격 (line-height)</label>
+                      <input 
+                        type="number" step="0.1" value={readerSettings.lineHeight} 
+                        onChange={(e) => handleUpdateReaderSetting('lineHeight', parseFloat(e.target.value) || 1.8)}
+                        style={{ backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: '#a6adc8' }}>문장 간격 (margin, px)</label>
+                      <input 
+                        type="number" value={readerSettings.paragraphGap} 
+                        onChange={(e) => handleUpdateReaderSetting('paragraphGap', parseInt(e.target.value) || 12)}
+                        style={{ backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: '#a6adc8' }}>들여쓰기 (em)</label>
+                      <input 
+                        type="number" step="0.5" value={readerSettings.textIndent} 
+                        onChange={(e) => handleUpdateReaderSetting('textIndent', parseFloat(e.target.value) || 0)}
+                        style={{ backgroundColor: '#313244', border: 'none', borderRadius: '6px', padding: '6px', color: '#cdd6f4' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '11px', color: '#a6adc8' }}>원문 투명도 대조 (%)</label>
+                      <input 
+                        type="range" min="0" max="100" value={readerSettings.opacity} 
+                        onChange={(e) => handleUpdateReaderSetting('opacity', parseInt(e.target.value))}
+                        style={{ marginTop: '8px' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 테마 스위치들 */}
+                  <div style={{ borderTop: '1px solid #313244', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>한자/일본어 병기 유지</span>
+                      <input 
+                        type="checkbox" checked={readerSettings.keepOriginalText} 
+                        onChange={(e) => handleUpdateReaderSetting('keepOriginalText', e.target.checked)}
+                        style={{ width: '18px', height: '18px' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>사이트 최하단 여백 추가 (스크롤 마진)</span>
+                      <input 
+                        type="checkbox" checked={readerSettings.bottomSpacing} 
+                        onChange={(e) => handleUpdateReaderSetting('bottomSpacing', e.target.checked)}
+                        style={{ width: '18px', height: '18px' }}
+                      />
+                    </div>
+                  </div>
+
+                </div>
+              )}
+            </div>
+
+            {/* 아코디언 2: 기타 설정 */}
+            <div style={{ backgroundColor: '#181825', borderRadius: '14px', border: '1px solid #313244', overflow: 'hidden' }}>
+              <div 
+                onClick={() => setShowMiscCollapse(!showMiscCollapse)}
+                style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: showMiscCollapse ? '1px solid #313244' : 'none' }}
+              >
+                <h4 style={{ margin: 0, fontSize: '14px', color: '#f9e2af', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  ▼ 기타 설정
+                </h4>
+                {showMiscCollapse ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </div>
+              
+              {showMiscCollapse && (
+                <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>제목 제거</span>
+                    <input 
+                      type="checkbox" checked={readerSettings.removeTitle} 
+                      onChange={(e) => handleUpdateReaderSetting('removeTitle', e.target.checked)}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>원문의 개행(줄바꿈) 제거</span>
+                    <input 
+                      type="checkbox" checked={readerSettings.removeOriginalNewlines} 
+                      onChange={(e) => handleUpdateReaderSetting('removeOriginalNewlines', e.target.checked)}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>다운로드 시 HTML 잔여 태그 제거</span>
+                    <input 
+                      type="checkbox" checked={readerSettings.removeHtmlOnDownload} 
+                      onChange={(e) => handleUpdateReaderSetting('removeHtmlOnDownload', e.target.checked)}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>빈 줄 강제 제거</span>
+                    <input 
+                      type="checkbox" checked={readerSettings.removeEmptyLines} 
+                      onChange={(e) => handleUpdateReaderSetting('removeEmptyLines', e.target.checked)}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>원문에 구글 번역/발음 부가정보 추가</span>
+                    <input 
+                      type="checkbox" checked={readerSettings.googleTranslate} 
+                      onChange={(e) => handleUpdateReaderSetting('googleTranslate', e.target.checked)}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 보관함 통계 및 클리너 */}
+            <div style={{ backgroundColor: '#181825', padding: '16px', borderRadius: '14px', border: '1px solid #313244', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <h4 style={{ margin: 0, fontSize: '14px', color: '#f38ba8' }}>💾 보관함 캐시 용량 최적화</h4>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '12px', color: '#bac2de' }}>
                 <div>보관 소설 수: {cacheStats.totalNovels}개</div>
                 <div>캐시된 화수: {cacheStats.totalCachedEpisodes}개</div>
@@ -587,14 +956,6 @@ function App() {
               </button>
             </div>
 
-            <button 
-              onClick={handleSaveSettings}
-              style={{
-                backgroundColor: '#89b4fa', border: 'none', borderRadius: '10px', padding: '12px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer'
-              }}
-            >
-              설정 저장
-            </button>
           </div>
         )}
 
@@ -612,7 +973,8 @@ function App() {
       }}>
         {[
           { id: 'library', label: '보관함', icon: FolderHeart },
-          { id: 'translate', label: '실시간번역', icon: BookOpen }
+          { id: 'translate', label: '실시간번역', icon: BookOpen },
+          { id: 'presets', label: '번역 설정', icon: Star } // '설정/presets' 탭 명시화
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id || (tab.id === 'translate' && (activeTab === 'viewer' || activeTab === 'pageResult'));
