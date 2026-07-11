@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings, FolderHeart, Star, Trash2, Plus, Download, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { openDB, saveNovel, getNovels, deleteNovel, saveEpisode, getEpisode, clearOldEpisodes, getCacheStatistics } from './db.js';
-import { getApiKeys, saveApiKeys, getActiveApiKey, fetchAvailableModels, translateTextWithRotation } from './apiRotator.js';
+import { getApiKeys, saveApiKeys, getActiveApiKey, fetchAvailableModels, translateTextWithRotation, translateTextStreamWithRotation } from './apiRotator.js';
 import { getPromptsTree, savePreset, deletePreset, getPromptContent } from './promptManager.js';
 import { translateFullPage, extractNovelContent } from './parser.js';
 import { downloadCachedEpisodes } from './downloader.js';
@@ -99,6 +99,7 @@ function App() {
   const [transProgress, setTransProgress] = useState(0);
   const [isTranslating, setIsTranslating] = useState(false);
   const cancelTranslationRef = useRef(false);
+  const translationAbortControllerRef = useRef(null);
 
   // 뷰어 및 렌더링 상태
   const [viewerTitle, setViewerTitle] = useState('');
@@ -476,39 +477,84 @@ function App() {
           setViewerParagraphs(initialViewerLines);
           setActiveTab('viewer');
 
-          const translatedList = [];
+          // AbortController 기동 (23단계 핵심)
+          translationAbortControllerRef.current = new AbortController();
+
+          // 1회 묶음 프롬프트 구성 (RPD 1회 소모)
+          const combinedRawText = paragraphs.map((p, idx) => `[${idx}] ${p.trim()}`).join('\n');
           const fullOriginalText = paragraphs.join('\n');
           const activeSubPrompt = filterActiveGlossary(rawSubPrompt, fullOriginalText);
           
-          const finalSystemPrompt = activeSubPrompt 
+          // 계층 프롬프트 합성 및 대량 단락 순서/형식 유지 엄격한 지시어 병합
+          const baseSystemPrompt = activeSubPrompt 
             ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
             : basePrompt;
 
-          for (let i = 0; i < paragraphs.length; i++) {
-            if (cancelTranslationRef.current) {
-              throw new Error('사용자에 의해 번역이 강제 중단되었습니다.');
-            }
-            const orig = paragraphs[i];
-            
-            setViewerParagraphs(prev => {
-              const next = [...prev];
-              next[i] = { original: orig, translated: 'AI 번역 가동 중...' };
-              return next;
+          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: You must translate each line marked with '[number]' in order. Maintain the format '[number] Translated text'. Do not merge lines or omit numbers.`;
+
+          const translatedList = new Array(paragraphs.length).fill('');
+
+          // 1회 호출 실시간 스트리밍 구동
+          await translateTextStreamWithRotation(
+            combinedRawText,
+            finalSystemPrompt,
+            selectedModel,
+            (accumulated) => {
+              // 스트리밍 텍스트가 수신될 때마다 파싱하여 화면에 실시간 주입
+              const lines = accumulated.split('\n');
+              const translationMap = {};
+              let maxProcessedIndex = -1;
+
+              lines.forEach(line => {
+                const match = line.match(/^\[(\d+)\]\s*(.*)/);
+                if (match) {
+                  const idx = parseInt(match[1]);
+                  const translatedVal = match[2].trim();
+                  if (idx >= 0 && idx < paragraphs.length) {
+                    translationMap[idx] = translatedVal;
+                    translatedList[idx] = translatedVal;
+                    if (idx > maxProcessedIndex) {
+                      maxProcessedIndex = idx;
+                    }
+                  }
+                }
+              });
+
+              setViewerParagraphs(prev => {
+                const next = [...prev];
+                paragraphs.forEach((orig, idx) => {
+                  if (translationMap[idx] !== undefined && translationMap[idx] !== '') {
+                    next[idx] = { original: orig, translated: translationMap[idx] };
+                  } else if (idx <= maxProcessedIndex) {
+                    next[idx] = { original: orig, translated: 'AI 번역 가동 중...' };
+                  } else {
+                    next[idx] = { original: orig, translated: 'AI 번역 대기 중...' };
+                  }
+                });
+                return next;
+              });
+
+              const percent = Math.min(Math.round(((maxProcessedIndex + 1) / paragraphs.length) * 100), 99);
+              setTransProgress(percent);
+            },
+            translationAbortControllerRef.current.signal
+          );
+
+          // 루프가 도는 동안 비어 있는 인덱스 보정 (누락 및 가동중 텍스트 잔재 소거)
+          setViewerParagraphs(prev => {
+            return prev.map((p, idx) => {
+              const finalTrans = translatedList[idx] || p.translated;
+              const hasDummy = finalTrans === 'AI 번역 대기 중...' || finalTrans === 'AI 번역 가동 중...' || !finalTrans;
+              return {
+                original: p.original,
+                translated: hasDummy ? `${p.original} (번역 누락/미완료)` : finalTrans
+              };
             });
+          });
 
-            const trans = await translateTextWithRotation(orig, finalSystemPrompt, selectedModel);
-            translatedList.push(trans);
-
-            setViewerParagraphs(prev => {
-              const next = [...prev];
-              next[i] = { original: orig, translated: trans };
-              return next;
-            });
-
-            setTransProgress(Math.round(((i + 1) / paragraphs.length) * 100));
-          }
-
-          await saveEpisode(novelId, chapterToUse, JSON.stringify(translatedList), JSON.stringify(paragraphs));
+          // 최종 캐시 디스크 1회 기록
+          const cleanTranslatedText = translatedList.map((t, idx) => t || paragraphs[idx]);
+          await saveEpisode(novelId, chapterToUse, JSON.stringify(cleanTranslatedText), JSON.stringify(paragraphs));
         }
         
         getNovels().then(setNovels);
@@ -851,7 +897,8 @@ function App() {
               <button 
                 onClick={() => {
                   cancelTranslationRef.current = true;
-                  alert('번역 중단을 요청했습니다. 현재 문단까지만 완료 후 안전하게 정지됩니다.');
+                  translationAbortControllerRef.current?.abort();
+                  alert('번역이 중단되었습니다.');
                 }}
                 style={{
                   backgroundColor: '#e78284',
@@ -904,7 +951,8 @@ function App() {
                 <button 
                   onClick={() => {
                     cancelTranslationRef.current = true;
-                    alert('번역 중단을 요청했습니다. 현재 문단까지만 완료 후 안전하게 정지됩니다.');
+                    translationAbortControllerRef.current?.abort();
+                    alert('번역이 중단되었습니다.');
                   }}
                   style={{
                     backgroundColor: '#e78284',

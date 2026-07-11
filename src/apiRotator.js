@@ -190,3 +190,133 @@ export async function translateTextWithRotation(textToTranslate, systemInstructi
 
   throw new Error('모든 API Key의 일일 한도가 소모되었거나 유효하지 않습니다.');
 }
+
+/**
+ * 23단계 핵심: 구글 Gemini API의 streamGenerateContent를 호출하여 실시간 스트리밍 번역을 수행합니다.
+ * @param {string} textToTranslate 번역할 소설 전체 합산 원문
+ * @param {string} systemInstruction 번역에 적용할 상세 프롬프트 (시스템 지시어)
+ * @param {string} model 사용할 Gemini 모델명
+ * @param {function} onChunk 실시간 번역 텍스트 누적 시 마다 호출되는 콜백 (accumulatedText => {})
+ * @param {object} abortSignal 번역 중지 트리거용 AbortSignal
+ */
+export async function translateTextStreamWithRotation(textToTranslate, systemInstruction, model = 'gemini-1.5-flash', onChunk, abortSignal) {
+  const keys = getApiKeys();
+  if (keys.length === 0) {
+    throw new Error('API Key가 등록되어 있지 않습니다. 설정에서 키를 먼저 입력해 주세요.');
+  }
+
+  let attempts = 0;
+  const maxAttempts = keys.length;
+
+  while (attempts < maxAttempts) {
+    const apiKey = getActiveApiKey();
+    if (!apiKey) {
+      throw new Error('유효한 API Key를 찾을 수 없습니다.');
+    }
+
+    const cleanedModelName = model.startsWith('models/') ? model : `models/${model}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/${cleanedModelName}:streamGenerateContent?key=${apiKey}`;
+
+    const requestBody = {
+      contents: [
+        {
+          parts: [
+            { text: textToTranslate }
+          ]
+        }
+      ],
+      systemInstruction: {
+        parts: [
+          { text: systemInstruction }
+        ]
+      },
+      generationConfig: {
+        temperature: 0.3
+      }
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody),
+        signal: abortSignal
+      });
+
+      if (response.status === 429) {
+        console.warn(`[Gemini API Stream Rate Limit] Rotating key...`);
+        rotateApiKey();
+        attempts++;
+        continue;
+      }
+
+      if (response.status === 404) {
+        throw new Error(`모델을 찾을 수 없습니다 (${model}).`);
+      }
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        if (errData.error?.message?.includes('API key') || errData.error?.status === 'RESOURCE_EXHAUSTED') {
+          rotateApiKey();
+          attempts++;
+          continue;
+        }
+        throw new Error(errData.error?.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let accumulatedText = '';
+      let buffer = '';
+
+      while (true) {
+        if (abortSignal?.aborted) {
+          reader.releaseLock();
+          throw new Error('사용자에 의해 번역이 강제 중단되었습니다.');
+        }
+
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // 버퍼에서 "text": "..." 필드들만 안전하게 인출하여 파싱하는 정밀 복원 정규식
+        const textMatches = [...buffer.matchAll(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g)];
+        let currentFullText = '';
+        textMatches.forEach(match => {
+          try {
+            const rawText = match[1];
+            const decoded = JSON.parse(`"${rawText}"`);
+            currentFullText += decoded;
+          } catch (e) {
+            currentFullText += match[1];
+          }
+        });
+
+        if (currentFullText.length > accumulatedText.length) {
+          accumulatedText = currentFullText;
+          onChunk(accumulatedText);
+        }
+      }
+
+      return accumulatedText;
+
+    } catch (error) {
+      if (error.name === 'AbortError' || abortSignal?.aborted) {
+        throw new Error('사용자에 의해 번역이 강제 중단되었습니다.');
+      }
+      console.error(`[Stream Fetch Failure] Attempt ${attempts + 1}:`, error);
+
+      if (attempts === maxAttempts - 1) {
+        throw new Error(`모든 API Key 사용 실패: ${error.message}`);
+      }
+
+      rotateApiKey();
+      attempts++;
+    }
+  }
+
+  throw new Error('모든 API Key의 일일 한도가 소모되었거나 유효하지 않습니다.');
+}
