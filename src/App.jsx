@@ -481,7 +481,6 @@ function App() {
           translationAbortControllerRef.current = new AbortController();
 
           // 1회 묶음 프롬프트 구성 (RPD 1회 소모)
-          const combinedRawText = paragraphs.map((p, idx) => `[${idx}] ${p.trim()}`).join('\n');
           const fullOriginalText = paragraphs.join('\n');
           const activeSubPrompt = filterActiveGlossary(rawSubPrompt, fullOriginalText);
           
@@ -494,51 +493,92 @@ function App() {
 
           const translatedList = new Array(paragraphs.length).fill('');
 
-          // 1회 호출 실시간 스트리밍 구동
-          await translateTextStreamWithRotation(
-            combinedRawText,
-            finalSystemPrompt,
-            selectedModel,
-            (accumulated) => {
-              // 스트리밍 텍스트가 수신될 때마다 파싱하여 화면에 실시간 주입
-              const lines = accumulated.split('\n');
-              const translationMap = {};
-              let maxProcessedIndex = -1;
+          // 24단계 핵심: 초장문/출력한계 대비 자동 연쇄 스트리밍 루프 구동
+          let doneTranslation = false;
+          let continuationCount = 0;
+          const maxContinuationAttempts = 4; // 최대 4차 연쇄까지 지원 (약 3만자 이상 초장문 방어)
 
-              lines.forEach(line => {
-                const match = line.match(/^\[(\d+)\]\s*(.*)/);
-                if (match) {
-                  const idx = parseInt(match[1]);
-                  const translatedVal = match[2].trim();
-                  if (idx >= 0 && idx < paragraphs.length) {
-                    translationMap[idx] = translatedVal;
-                    translatedList[idx] = translatedVal;
-                    if (idx > maxProcessedIndex) {
-                      maxProcessedIndex = idx;
+          while (!doneTranslation && continuationCount < maxContinuationAttempts) {
+            // 아직 번역이 완료되지 않은 미완성 단락 인덱스만 추출
+            const pendingIndices = [];
+            paragraphs.forEach((p, idx) => {
+              if (translatedList[idx] === '' || translatedList[idx] === undefined) {
+                pendingIndices.push(idx);
+              }
+            });
+
+            // 모든 단락의 번역이 완수되었다면 즉시 연쇄 루프 탈출!
+            if (pendingIndices.length === 0) {
+              doneTranslation = true;
+              break;
+            }
+
+            console.log(`[Translation Continuation #${continuationCount + 1}] Processing ${pendingIndices.length} pending paragraphs...`);
+
+            // 남은 미완성 단락들만 2차 묶음으로 선별 합성
+            const pendingRawText = pendingIndices.map(idx => `[${idx}] ${paragraphs[idx].trim()}`).join('\n');
+
+            try {
+              // 1회 호출 실시간 스트리밍 구동
+              await translateTextStreamWithRotation(
+                pendingRawText,
+                finalSystemPrompt,
+                selectedModel,
+                (accumulated) => {
+                  // 스트리밍 텍스트가 수신될 때마다 파싱하여 화면에 실시간 주입
+                  const lines = accumulated.split('\n');
+                  const translationMap = {};
+                  let maxProcessedIndex = -1;
+
+                  lines.forEach(line => {
+                    const match = line.match(/^\[(\d+)\]\s*(.*)/);
+                    if (match) {
+                      const idx = parseInt(match[1]);
+                      const translatedVal = match[2].trim();
+                      if (pendingIndices.includes(idx)) {
+                        translationMap[idx] = translatedVal;
+                        translatedList[idx] = translatedVal;
+                        if (idx > maxProcessedIndex) {
+                          maxProcessedIndex = idx;
+                        }
+                      }
                     }
-                  }
-                }
-              });
+                  });
 
-              setViewerParagraphs(prev => {
-                const next = [...prev];
-                paragraphs.forEach((orig, idx) => {
-                  if (translationMap[idx] !== undefined && translationMap[idx] !== '') {
-                    next[idx] = { original: orig, translated: translationMap[idx] };
-                  } else if (idx <= maxProcessedIndex) {
-                    next[idx] = { original: orig, translated: 'AI 번역 가동 중...' };
-                  } else {
-                    next[idx] = { original: orig, translated: 'AI 번역 대기 중...' };
-                  }
-                });
-                return next;
-              });
+                  setViewerParagraphs(prev => {
+                    const next = [...prev];
+                    paragraphs.forEach((orig, idx) => {
+                      if (translatedList[idx] !== undefined && translatedList[idx] !== '') {
+                        next[idx] = { original: orig, translated: translatedList[idx] };
+                      } else if (pendingIndices.includes(idx) && idx <= maxProcessedIndex) {
+                        next[idx] = { original: orig, translated: 'AI 번역 가동 중...' };
+                      } else if (pendingIndices.includes(idx)) {
+                        next[idx] = { original: orig, translated: 'AI 번역 대기 중...' };
+                      }
+                    });
+                    return next;
+                  });
 
-              const percent = Math.min(Math.round(((maxProcessedIndex + 1) / paragraphs.length) * 100), 99);
-              setTransProgress(percent);
-            },
-            translationAbortControllerRef.current.signal
-          );
+                  const completedCount = translatedList.filter(t => t !== '').length;
+                  const percent = Math.min(Math.round((completedCount / paragraphs.length) * 100), 99);
+                  setTransProgress(percent);
+                },
+                translationAbortControllerRef.current.signal
+              );
+            } catch (streamErr) {
+              console.warn(`[Stream Continuation Warning] Attempt ${continuationCount + 1} encountered error:`, streamErr);
+              
+              // 긴급 중지 또는 Abort 된 경우 루프 파쇄 탈출
+              if (cancelTranslationRef.current || streamErr.message?.includes('중단')) {
+                throw streamErr;
+              }
+              
+              // 다음 키로 시도할 기회를 주기 위해 강제 delay를 살짝 둔다
+              await new Promise(r => setTimeout(r, 1000));
+            }
+
+            continuationCount++;
+          }
 
           // 루프가 도는 동안 비어 있는 인덱스 보정 (누락 및 가동중 텍스트 잔재 소거)
           setViewerParagraphs(prev => {
