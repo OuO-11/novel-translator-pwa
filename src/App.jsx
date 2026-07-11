@@ -79,9 +79,13 @@ function App() {
   const [selectedPreset, setSelectedPreset] = useState('default'); // 추가 커스텀 프리셋
   const [cacheStats, setCacheStats] = useState({ totalNovels: 0, totalCachedEpisodes: 0 });
 
-  // 프롬프트 직접 추가 폼 상태
+  // 프로프트 직접 추가 폼 상태
   const [newPresetName, setNewPresetName] = useState('');
   const [newPresetContent, setNewPresetContent] = useState('');
+
+  // [37단계] 프리셋 내용 확인/수정 UI 상태
+  const [editingPresetId, setEditingPresetId] = useState(null); // 현재 펼쳐진 프리셋 ID
+  const [editingPresetContent, setEditingPresetContent] = useState(''); // 수정 중인 내용
 
   // 리더기 상세 커스텀 설정 상태
   const [readerSettings, setReaderSettings] = useState(() => {
@@ -431,7 +435,7 @@ function App() {
         setTransProgress(40);
         const translatedHtml = await translateFullPage(data.html, finalSystemPrompt, selectedModel, (progress) => {
           setTransProgress(40 + Math.round(progress * 0.6));
-        });
+        }, cancelTranslationRef);
         setNovelHtmlResult(translatedHtml);
         setActiveTab('pageResult');
       } else {
@@ -1283,8 +1287,34 @@ function App() {
               >
                 ← 번역창
               </button>
-              <span style={{ fontSize: '12px', color: '#a6d189' }}>✓ 목록 번역 완료</span>
-              {isTranslating && <span style={{ fontSize: '11px', color: '#ca9ee6', marginLeft: 'auto' }}>🔄 번역 중... ({transProgress}%)</span>}
+              {/* 번역 완료 상태 표시 */}
+              {!isTranslating && (
+                <span style={{ fontSize: '12px', color: '#a6d189' }}>✓ 번역 완료</span>
+              )}
+              {/* 번역 중 진행률 + 중지 버튼 */}
+              {isTranslating && (
+                <>
+                  <span style={{ fontSize: '11px', color: '#ca9ee6' }}>🔄 번역 중... ({transProgress}%)</span>
+                  <button
+                    onClick={() => {
+                      cancelTranslationRef.current = true;
+                      translationAbortControllerRef.current?.abort();
+                    }}
+                    style={{ background: '#e78284', border: 'none', color: '#11111b', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: 'auto', whiteSpace: 'nowrap' }}
+                  >
+                    중지
+                  </button>
+                </>
+              )}
+              {/* 재번역 버튼 (번역 완료 후에만 표시) */}
+              {!isTranslating && novelHtmlResult && (
+                <button
+                  onClick={() => triggerTranslationFlow(inputUrl, 'page', null, true)}
+                  style={{ background: '#222822', border: '1px solid #81c784', color: '#81c784', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', marginLeft: 'auto', whiteSpace: 'nowrap' }}
+                >
+                  재번역
+                </button>
+              )}
             </div>
             {/* iframe — 여백 없이 풀스크린 */}
             <iframe 
@@ -1428,18 +1458,58 @@ function App() {
               </div>
 
               {/* 현재 등록된 프리셋 리스트 목록 및 삭제 기능 */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '12px', color: '#a5adce' }}>현재 등록된 추가 프리셋</label>
                 {Object.keys(currentPresets).map(presetId => (
-                  <div key={presetId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#222822', padding: '8px 12px', borderRadius: '8px' }}>
-                    <span style={{ fontSize: '13px' }}>{currentPresets[presetId].name}</span>
-                    {presetId !== 'default' && (
-                      <button 
-                        onClick={() => handleDeletePreset(presetId)}
-                        style={{ background: 'none', border: 'none', color: '#e78284', cursor: 'pointer' }}
-                      >
-                        삭제
-                      </button>
+                  <div key={presetId} style={{ backgroundColor: '#222822', borderRadius: '8px', overflow: 'hidden' }}>
+                    {/* 프리셋 헤더 행 */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px' }}>
+                      <span style={{ fontSize: '13px', flex: 1 }}>
+                        {presetId === 'default' ? '🔒 ' : ''}{currentPresets[presetId].name}
+                      </span>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {/* 내용 보기/수정 토글 버튼 */}
+                        <button
+                          onClick={() => handleTogglePresetEdit(presetId)}
+                          style={{ background: 'none', border: '1px solid #444', color: '#a5adce', cursor: 'pointer', borderRadius: '4px', padding: '2px 8px', fontSize: '11px' }}
+                        >
+                          {editingPresetId === presetId ? '닫기' : '내용 보기'}
+                        </button>
+                        {/* default는 삭제 버튼 없음 */}
+                        {presetId !== 'default' && (
+                          <button
+                            onClick={() => handleDeletePreset(presetId)}
+                            style={{ background: 'none', border: 'none', color: '#e78284', cursor: 'pointer', fontSize: '11px' }}
+                          >
+                            삭제
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {/* 내용 확인/수정 패널 (toggles open) */}
+                    {editingPresetId === presetId && (
+                      <div style={{ padding: '8px 12px 12px', borderTop: '1px solid #2d2d2d', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <textarea
+                          rows={5}
+                          value={editingPresetContent}
+                          onChange={(e) => setEditingPresetContent(e.target.value)}
+                          readOnly={presetId === 'default'}
+                          placeholder={presetId === 'default' ? '기본 프리셋은 내용이 없습니다 (번역 미적용)' : ''}
+                          style={{
+                            backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '6px',
+                            padding: '8px', color: '#e2e4ed', fontSize: '12px', lineHeight: '1.6',
+                            resize: 'vertical', opacity: presetId === 'default' ? 0.6 : 1
+                          }}
+                        />
+                        {presetId !== 'default' && (
+                          <button
+                            onClick={() => handleSaveEditPreset(presetId)}
+                            style={{ backgroundColor: '#83c5be', border: 'none', borderRadius: '6px', padding: '6px 10px', color: '#11111b', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}
+                          >
+                            저장
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}

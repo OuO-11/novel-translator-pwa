@@ -9,7 +9,7 @@ import { translateTextWithRotation } from './apiRotator.js';
  * @param {string} model 사용할 Gemini 모델
  * @param {function} onProgress 진행률 업데이트 콜백 (0 ~ 100)
  */
-export async function translateFullPage(rawHtml, systemPrompt, model, onProgress = () => {}) {
+export async function translateFullPage(rawHtml, systemPrompt, model, onProgress = () => {}, cancelRef = null) {
   // 브라우저의 DOMParser를 이용해 가상 DOM 트리 생성 (CORS에 안전함)
   const parser = new DOMParser();
   const doc = parser.parseFromString(rawHtml, 'text/html');
@@ -51,6 +51,12 @@ export async function translateFullPage(rawHtml, systemPrompt, model, onProgress
   let translatedCount = 0;
 
   for (let i = 0; i < textNodes.length; i += BATCH_SIZE) {
+    // [37단계] 중지 신호 감지 시 즉시 루프 탈출
+    if (cancelRef && cancelRef.current === true) {
+      console.log('[Full Page Translator] Cancelled by user.');
+      break;
+    }
+
     const batch = textNodes.slice(i, i + BATCH_SIZE);
     
     // 번들 구조화: 번역기가 노드 순서를 매핑할 수 있도록 임의의 구분자(ID) 주입
