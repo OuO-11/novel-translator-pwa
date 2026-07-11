@@ -238,24 +238,39 @@ export function extractNovelContent(rawHtml, url) {
   const scripts = cleanDoc.querySelectorAll('script, style, iframe, ins');
   scripts.forEach(s => s.remove());
 
-  // 문장별로 번역하기 쉽게 p태그 배열 형태로 원문 라인들을 리턴
-  const paragraphNodes = cleanDoc.querySelectorAll('p, div, br');
+  // [34단계 핵심: 줄바꿈 분할 및 jjwxc 전용 블랙리스트 필터링 도입]
+  // 1. <br> 태그들을 \n 줄바꿈 문자로 변환하여 한 덩어리의 텍스트 안에서 문단 구분이 깨지지 않게 보정
+  const brs = cleanDoc.querySelectorAll('br');
+  brs.forEach(br => {
+    const textNode = cleanDoc.createTextNode('\n');
+    br.parentNode?.replaceChild(textNode, br);
+  });
+
   const paragraphsList = [];
   
-  paragraphNodes.forEach(node => {
-    const text = node.textContent?.trim();
-    // 의미 있는 텍스트만 필터링
-    if (text && text.length > 1 && !text.startsWith('http')) {
-      // 52shuku 하단 광고 및 사이트 꼬리말 번역 제외
-      if (
-        text.includes('哦豁') || 
-        text.includes('52书库') || 
-        text.includes('传送门：') ||
-        text.includes('排行榜单') ||
-        text.includes('书库不错的')
-      ) {
-        return;
-      }
+  // 2. 전체 HTML 본문을 \n 기준으로 쪼개어 가공
+  const rawText = cleanDoc.body?.textContent || '';
+  const lines = rawText.split('\n');
+
+  // jjwxc 및 52shuku 꼬리말/작가의 말/댓글 영역 전역 블랙리스트 키워드들
+  const BLACKLIST_KEYWORDS = [
+    '哦豁', '52书库', '传送门：', '排行榜单', '书库不错的',
+    '试试作家助手好不好用', '作者有话说', '显示所有文的作话', 
+    '第1章', '昵称：', '评分：', '鲜花一捧', '交流灌水', 
+    '别字提虫', '一块小砖', '别字', '灌水', '发表',
+    '第一章', '第2章', '第3章', '下一章', '上一章',
+    '支持手机版', '晋江文学城', 'jjwxc', '本站', '作话',
+    '小说在线阅读', '本章未完', '点击下一页', '无广告'
+  ];
+
+  lines.forEach(line => {
+    const text = line.trim();
+    // 의미 있는 크기의 텍스트이고 숫자나 링크가 아닐 경우만 수집
+    if (text && text.length > 1 && !text.startsWith('http') && isNaN(text)) {
+      // 블랙리스트 키워드 매칭 감시
+      const isBlacklisted = BLACKLIST_KEYWORDS.some(keyword => text.includes(keyword));
+      if (isBlacklisted) return;
+      
       paragraphsList.push(text);
     }
   });
