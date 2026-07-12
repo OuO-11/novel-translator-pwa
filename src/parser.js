@@ -8,6 +8,7 @@ import { translateTextWithRotation } from './apiRotator.js';
  * @param {string} systemPrompt 적용할 소설/목록 번역 프롬프트
  * @param {string} model 사용할 Gemini 모델
  * @param {function} onProgress 진행률 업데이트 콜백 (0 ~ 100)
+ * @param {object} cancelRef 중지 처리용 ref
  */
 export async function translateFullPage(rawHtml, systemPrompt, model, onProgress = () => {}, cancelRef = null) {
   // 브라우저의 DOMParser를 이용해 가상 DOM 트리 생성 (CORS에 안전함)
@@ -46,7 +47,6 @@ export async function translateFullPage(rawHtml, systemPrompt, model, onProgress
   console.log(`[Full Page Translator] Found ${totalNodes} text nodes to translate.`);
 
   // API 호출 최적화: 텍스트 노드들을 묶어 번들링(Batching)하여 요청
-  // 텍스트 노드 하나씩 API를 날리면 한도에 걸리므로, 15~20개씩 묶어서 하나의 단락으로 보냄
   const BATCH_SIZE = 15;
   let translatedCount = 0;
 
@@ -60,7 +60,6 @@ export async function translateFullPage(rawHtml, systemPrompt, model, onProgress
     const batch = textNodes.slice(i, i + BATCH_SIZE);
     
     // 번들 구조화: 번역기가 노드 순서를 매핑할 수 있도록 임의의 구분자(ID) 주입
-    // 예: [1] 원문텍스트1\n[2] 원문텍스트2...
     const batchText = batch.map((node, index) => `[${index}] ${node.nodeValue.trim()}`).join('\n');
 
     // 배치별 전용 번역 프롬프트
@@ -91,7 +90,6 @@ export async function translateFullPage(rawHtml, systemPrompt, model, onProgress
 
     } catch (e) {
       console.error(`[Batch Translation Failed] Index ${i} to ${i + BATCH_SIZE}:`, e);
-      // 실패 시 원래 원문 뒤에 경고 표시만 추가하여 전체 번역이 멈추는 것 방지
       batch.forEach(node => {
         node.nodeValue = `${node.nodeValue} (번역 실패)`;
       });
@@ -101,22 +99,24 @@ export async function translateFullPage(rawHtml, systemPrompt, model, onProgress
     onProgress(Math.min(Math.round((translatedCount / totalNodes) * 100), 100));
   }
 
-  // 수정된 DOM을 다시 HTML 스트링으로 변환하여 반환
   return doc.documentElement.outerHTML;
 }
 
 /**
- * 2. 소설 본문 가독성 리더기 파싱 (Reader Mode Text Extractor)
- * 원본 HTML 소스에서 본문 텍스트만 깔끔하게 추출합니다. (광고 및 쓰레기 태그 차단)
- * @param {string} rawHtml 원본 HTML 소스
- * @param {string} url 해당 소설의 원본 주소 (도메인별 특화 파싱용)
+ * 2. 소설 본문 내용 파싱 (Reader Mode)
+ * 원본 HTML 소스를 분석하여 소설 본문의 제목, 문단 배열, 이전화/다음화 주소를 지능형으로 추출하여 구조화합니다.
  */
 export function extractNovelContent(rawHtml, url) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(rawHtml, 'text/html');
-  
-  // 26단계 핵심: 파싱 시작 시점에 스타일시트(style) 및 스크립트(script) 노드를 DOM 트리에서 원천 제거
-  const trashNodes = doc.querySelectorAll('script, style, link, meta, iframe, ins, noscript');
+
+  // 번역 방해 노이즈 노드(헤더, 푸터, 댓글창, 추천 도서 등) 사전 영구 제거 (14단계)
+  const trashSelectors = [
+    'header', 'footer', '#footer', '.footer', 'noscript', 'iframe', 'ins', 'script', 'style',
+    '.comment', '.comments', '#comments', '.reply', '.replies', '#replies', '.ad-box', '.ads',
+    '.right-sidebar', '.sidebar', '.menu', '.navigation', '.breadcrumb', '.breadcrumbs'
+  ];
+  const trashNodes = doc.querySelectorAll(trashSelectors.join(','));
   trashNodes.forEach(t => t.remove());
   
   let title = doc.querySelector('title')?.textContent?.trim() || '제목 없음';
@@ -124,17 +124,14 @@ export function extractNovelContent(rawHtml, url) {
 
   // 도메인별 소설 본문 영역 파싱 규칙 커스텀 (52shuku, 진강문학성 등)
   if (url.includes('52shuku')) {
-    // 52shuku는 대개 <article class="article-content"> 또는 <div class="article-content"> 내에 본문이 존재함
     const article = doc.querySelector('.article-content') || doc.querySelector('article');
     if (article) {
-      // 22단계 영역정정: 하단 내비게이션 및 광고 컨테이너 영역(DOM Element) 자체를 지목해 통째로 소거
       const targetSelectors = ['.read-page', '.page-link', '.book-page', '.pages', '.ad', '.read-ad'];
       targetSelectors.forEach(sel => {
         const els = article.querySelectorAll(sel);
         els.forEach(el => el.remove());
       });
 
-      // 내비게이션 텍스트가 명백히 포함된 하단부 엘리먼트 영역 추가 소거
       const navElements = article.querySelectorAll('p, div');
       navElements.forEach(el => {
         const text = el.textContent?.trim() || '';
@@ -151,21 +148,17 @@ export function extractNovelContent(rawHtml, url) {
       contentHtml = article.innerHTML;
     }
   } else if (url.includes('jjwxc')) {
-    // 진강문학성은 PC 버전 <div id="novelcontent">, 모바일 버전 .noveltext, .novelcontent, #content, <td> 등에 들어있음
     let contentArea = doc.querySelector('#novelcontent') || 
                       doc.querySelector('.novelcontent') || 
                       doc.querySelector('.noveltext') || 
                       doc.querySelector('#content') ||
                       doc.querySelector('td.noveltext');
 
-    // [m.jjwxc.net 모바일 패치 (33단계)]
-    // 모바일 진강문학성은 뚜렷한 content ID가 없으며, b.module 클래스 div들 중 텍스트가 가장 긴 영역에 소설 본문이 저장됩니다.
     if (!contentArea && (url.includes('m.jjwxc.net') || url.includes('m.jjwxc'))) {
       const candidates = doc.querySelectorAll('.b.module, div[class*="module"], .note_main');
       let longestDiv = null;
       let maxLen = 0;
       candidates.forEach(el => {
-        // 내비게이션 태그 노이즈 걷어낸 순수 텍스트 길이를 판별
         const textLen = el.textContent?.trim().length || 0;
         if (textLen > maxLen) {
           maxLen = textLen;
@@ -178,7 +171,6 @@ export function extractNovelContent(rawHtml, url) {
     }
 
     if (contentArea) {
-      // 본문 영역 내의 불필요한 내비게이션 노드(이전화/다음화/돌아가기 링크 등) 원천 소거
       const navSelects = ['.nav', '.novel_nav', 'a', 'style', 'script', '#comment_list_new', '.recommend_novel_box'];
       navSelects.forEach(sel => {
         contentArea.querySelectorAll(sel).forEach(el => el.remove());
@@ -186,7 +178,6 @@ export function extractNovelContent(rawHtml, url) {
       contentHtml = contentArea.innerHTML;
     }
   } else if (url.includes('archiveofourown') || url.includes('ao3')) {
-    // AO3는 <div id="chapters"> 또는 <div class="userstuff"> 안에 본문이 있음
     const chapters = doc.querySelector('#chapters') || doc.querySelector('.userstuff');
     if (chapters) {
       contentHtml = chapters.innerHTML;
@@ -199,7 +190,6 @@ export function extractNovelContent(rawHtml, url) {
     if (paragraphs.length > 5) {
       contentHtml = Array.from(paragraphs).map(p => p.outerHTML).join('\n');
     } else {
-      // 최후의 보루: Body 전체 텍스트에서 줄바꿈을 p태그화
       const bodyText = doc.body?.innerText || '';
       contentHtml = bodyText.split('\n').map(line => line.trim() ? `<p>${line.trim()}</p>` : '').join('\n');
     }
@@ -244,6 +234,11 @@ export function extractNovelContent(rawHtml, url) {
   const scripts = cleanDoc.querySelectorAll('script, style, iframe, ins');
   scripts.forEach(s => s.remove());
 
+  // [39단계 구조적 해결] <a> 링크 태그들을 본문 추출용 cleanDoc DOM에서 영구 제거
+  // 본문 안에는 <a> 링크가 들어가지 않으므로, <a> 태그를 날려주면 
+  // 'Top', '目录', '이전화' 등 페이지 내비게이션 버튼 찌꺼기가 텍스트 블랙리스트 없이 깔끔하게 걸러집니다.
+  cleanDoc.querySelectorAll('a').forEach(a => a.remove());
+
   // [34단계 핵심: 줄바꿈 분할 및 jjwxc 전용 블랙리스트 필터링 도입]
   // 1. <br> 태그들을 \n 줄바꿈 문자로 변환하여 한 덩어리의 텍스트 안에서 문단 구분이 깨지지 않게 보정
   const brs = cleanDoc.querySelectorAll('br');
@@ -259,23 +254,20 @@ export function extractNovelContent(rawHtml, url) {
   const lines = rawText.split('\n');
 
   // jjwxc 및 52shuku 꼬리말/작가의 말/댓글 영역 전역 블랙리스트 키워드들
+  // (본문 중 정상적으로 출현할 수 있는 'Top'이나 '目录' 같은 단어는 단어 블랙리스트에서 제외)
   const BLACKLIST_KEYWORDS = [
     '哦豁', '52书库', '传送门：', '排行榜单', '书库不错的',
-    '试试作家助手好不好用', '作者有话说', '显示所有文的作话', 
+    '试试作家助手好不好用', '作者有话说', '显示所有文의作话', 
     '第1章', '昵称：', '评分：', '鲜花一捧', '交流灌水', 
     '别字提虫', '一块小砖', '别字', '灌水', '发表',
-    '第一章', '第2章', '第3章', '下一章', '上一章',
     '支持手机版', '晋江文学城', 'jjwxc', '本站', '作话',
-    '小说在线阅读', '本章未完', '点击下一页', '无广告',
-    // [38단계] 52shuku 및 기타 페이지 바닥 네비게이션 찌꺼기
-    'Top', 'TOP', '返回顶部', '回到顶部', '书页', '返回书页',
-    '上一页', '下一页', '目录', '加入书架', '推荐本书'
+    '小说在线阅读', '本章未完', '点击下一页', '无广告'
   ];
 
   lines.forEach(line => {
     const text = line.trim();
-    // 의미 있는 크기의 텍스트이고 숫자나 링크가 아닐 경우만 수집
-    if (text && text.length > 1 && !text.startsWith('http') && isNaN(text)) {
+    // [39단계] 텍스트가 존재하고, 최소 4글자 이상이며, URL이나 숫자가 아닐 때만 수집 (2차 필터링)
+    if (text && text.length >= 4 && !text.startsWith('http') && isNaN(text)) {
       // 블랙리스트 키워드 매칭 감시
       const isBlacklisted = BLACKLIST_KEYWORDS.some(keyword => text.includes(keyword));
       if (isBlacklisted) return;

@@ -34,8 +34,8 @@ const DEFAULT_BASE_PROMPTS = {
 // 리더기 테마 및 스타일 기본값 정의 (리디/카카페 감성의 웜 다크 테마 기본 장착)
 const DEFAULT_READER_SETTINGS = {
   fontFamily: 'system-ui',
-  fontColor: '#f0f0f5',
-  bgColor: '#111111',
+  fontColor: '#eaeae0',
+  bgColor: '#121310',
   opacity: 45,
   fontSize: 17,
   fontWeight: 400,
@@ -816,12 +816,12 @@ function App() {
         alignItems: 'center',
         justifyContent: 'center',
         minHeight: '100vh',
-        backgroundColor: '#151815',
-        color: '#e2e4ed',
+        backgroundColor: '#101210',
+        color: '#e2e4e0',
         fontFamily: 'system-ui, -apple-system, sans-serif'
       }}>
         <div style={{
-          border: '4px solid #222822',
+          border: '4px solid #242824',
           borderTop: '4px solid #81c784',
           borderRadius: '50%',
           width: '32px',
@@ -829,7 +829,7 @@ function App() {
           animation: 'spin 1s linear infinite',
           marginBottom: '16px'
         }} />
-        <span style={{ fontSize: '14px', color: '#a5adce' }}>로컬 데이터베이스 연결 중...</span>
+        <span style={{ fontSize: '14px', color: '#aab0a6' }}>로컬 데이터베이스 연결 중...</span>
         <style>{`
           @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -847,8 +847,8 @@ function App() {
       display: 'flex',
       flexDirection: 'column',
       minHeight: '100vh',
-      backgroundColor: '#151815',
-      color: '#e2e4ed',
+      backgroundColor: '#101210',
+      color: '#e2e4e0',
       fontFamily: 'system-ui, -apple-system, sans-serif'
     }}>
       {/* 헤더 (22단계: 뷰어 화면 진입 시 헤더를 숨겨 겹침 현상 해소 및 꽉 찬 화면 지원) */}
@@ -857,8 +857,8 @@ function App() {
           display: 'flex',
           alignItems: 'center',
           padding: '16px 20px',
-          borderBottom: '1px solid #222822',
-          backgroundColor: '#111311',
+          borderBottom: '1px solid #242824',
+          backgroundColor: '#0e100e',
           position: 'sticky',
           top: 0,
           zIndex: 10
@@ -900,9 +900,9 @@ function App() {
               <div style={{
                 textAlign: 'center',
                 padding: '50px 20px',
-                border: '2px dashed #252630',
+                border: '2px dashed #242824',
                 borderRadius: '16px',
-                color: '#a5adce'
+                color: '#aab0a6'
               }}>
                 보관함이 비어 있습니다. [실시간번역] 탭으로 이동하여 번역을 수행하면 소설이 이곳에 자동 적재됩니다.
               </div>
@@ -914,8 +914,8 @@ function App() {
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    backgroundColor: '#111311',
-                    border: '1px solid #222822',
+                    backgroundColor: '#0e100e',
+                    border: '1px solid #242824',
                     borderRadius: '16px',
                     padding: '16px',
                     gap: '16px',
@@ -923,7 +923,7 @@ function App() {
                     transition: 'transform 0.15s'
                   }}
                 >
-                  <div style={{ backgroundColor: '#222822', padding: '10px', borderRadius: '12px' }}>
+                  <div style={{ backgroundColor: '#181c18', padding: '10px', borderRadius: '12px' }}>
                     <FolderHeart size={22} color="#e78284" />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -931,8 +931,8 @@ function App() {
                       {novel.title}
                     </h4>
                     <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
-                      <span style={{ backgroundColor: '#222822', padding: '2px 6px', borderRadius: '4px', color: '#81c784' }}>{novel.site}</span>
-                      <span style={{ color: '#a5adce' }}>마지막으로 읽은 회차: {novel.lastReadChapter}화</span>
+                      <span style={{ backgroundColor: '#181c18', padding: '2px 6px', borderRadius: '4px', color: '#81c784' }}>{novel.site}</span>
+                      <span style={{ color: '#aab0a6' }}>마지막으로 읽은 회차: {novel.lastReadChapter}화</span>
                     </div>
                   </div>
                   
@@ -965,18 +965,18 @@ function App() {
             <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>AI 실시간 번역 시작</h3>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', color: '#a5adce' }}>소설 주소 (URL)</label>
+              <label style={{ fontSize: '13px', color: '#aab0a6' }}>소설 주소 (URL)</label>
               <input 
                 type="text" 
                 placeholder="예: https://www.52shuku.net/bl/..." 
                 value={inputUrl}
                 onChange={handleUrlChange}
                 style={{
-                  backgroundColor: '#111311',
-                  border: '1px solid #222822',
+                  backgroundColor: '#0e100e',
+                  border: '1px solid #242824',
                   borderRadius: '10px',
                   padding: '12px',
-                  color: '#e2e4ed',
+                  color: '#e2e4e0',
                   fontSize: '14px'
                 }}
               />
@@ -985,7 +985,7 @@ function App() {
             {/* 번역 옵션 그룹 */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '12px', color: '#a5adce' }}>번역 모드 (언어 선택)</label>
+                <label style={{ fontSize: '12px', color: '#aab0a6' }}>번역 모드 (언어 선택)</label>
                 <select 
                   value={selectedLang} 
                   onChange={(e) => {
@@ -993,7 +993,7 @@ function App() {
                     setSelectedPreset('default');
                   }}
                   style={{
-                    backgroundColor: '#111311', border: '1px solid #222822', borderRadius: '8px', padding: '8px', color: '#e2e4ed'
+                    backgroundColor: '#0e100e', border: '1px solid #242824', borderRadius: '8px', padding: '8px', color: '#e2e4e0'
                   }}
                 >
                   <option value="chinese">중국어 번역기</option>
@@ -1002,12 +1002,12 @@ function App() {
               </div>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '12px', color: '#a5adce' }}>프롬프트 템플릿</label>
+                <label style={{ fontSize: '12px', color: '#aab0a6' }}>프롬프트 템플릿</label>
                 <select 
                   value={selectedPreset} 
                   onChange={(e) => setSelectedPreset(e.target.value)}
                   style={{
-                    backgroundColor: '#111311', border: '1px solid #222822', borderRadius: '8px', padding: '8px', color: '#e2e4ed'
+                    backgroundColor: '#0e100e', border: '1px solid #242824', borderRadius: '8px', padding: '8px', color: '#e2e4e0'
                   }}
                 >
                   {Object.keys(currentPresets).map(presetId => (
@@ -1133,14 +1133,14 @@ function App() {
                     setLastTranslateSubTab('translate');
                     setActiveTab('translate');
                   }}
-                  style={{ background: '#222822', border: 'none', color: '#81c784', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                  style={{ background: '#181c18', border: 'none', color: '#81c784', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
                 >
                   ← 주소 입력창으로
                 </button>
                 <button 
                   onClick={handleReportFeedback}
                   style={{ 
-                    background: '#222822', 
+                    background: '#181c18', 
                     border: '1px solid #ea999c', 
                     color: '#ea999c', 
                     padding: '6px 12px', 
@@ -1177,7 +1177,7 @@ function App() {
                 )}
               </div>
               <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#81c784' }}>{viewerTitle}</h2>
-              <div style={{ display: 'flex', gap: '10px', fontSize: '12px', color: '#a5adce', marginTop: '6px' }}>
+              <div style={{ display: 'flex', gap: '10px', fontSize: '12px', color: '#aab0a6', marginTop: '6px' }}>
                 <span>제 {activeViewerChapter}화 감상 중</span>
               </div>
             </div>
@@ -1195,7 +1195,7 @@ function App() {
               paddingTop: '20px',
               paddingBottom: readerSettings.bottomSpacing ? '100px' : '20px',
               borderRadius: '16px',
-              border: '1px solid #252630',
+              border: '1px solid #242824',
               display: 'flex',
               flexDirection: 'column',
               gap: `${readerSettings.paragraphGap}px`
