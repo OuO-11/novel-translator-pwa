@@ -284,6 +284,10 @@ function App() {
   // 상세 소설 본문 화수 주소인지 감지하는 헬퍼 함수
   const isNovelEpisodeUrl = (url) => {
     if (!url) return false;
+    // 52shuku의 태그 목록(/Tags_...html) 주소는 본문이 아닌 목록이므로 에피소드 판정에서 제외하여 page 번역으로 자동 분기시킵니다.
+    if (url.includes('/Tags_') || url.includes('/tags/')) {
+      return false;
+    }
     return (
       url.match(/_(\d+)\.html/i) || 
       url.match(/[?&]chapterid=(\d+)/i) || 
@@ -1084,8 +1088,8 @@ function App() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: '#aab0a6' }}>소설 주소 (URL)</label>
-              <input 
-                type="text" 
+              <textarea 
+                rows={3}
                 placeholder="예: https://www.52shuku.net/bl/..." 
                 value={inputUrl}
                 onChange={handleUrlChange}
@@ -1095,7 +1099,11 @@ function App() {
                   borderRadius: '10px',
                   padding: '12px',
                   color: '#e2e4e0',
-                  fontSize: '14px'
+                  fontSize: '14px',
+                  resize: 'vertical',
+                  fontFamily: 'inherit',
+                  width: '100%',
+                  boxSizing: 'border-box'
                 }}
               />
             </div>
