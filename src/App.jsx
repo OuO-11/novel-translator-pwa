@@ -520,6 +520,11 @@ function App() {
             updatedAt: Date.now()
           });
         }
+        
+        // 소설 정보 저장 후 novels React 목록을 즉시 갱신하여 연속 번역 시 중복 적재 발생 차단
+        const updatedList = await getNovels();
+        setNovels(updatedList);
+
         setActiveViewerNovelId(novelId);
 
         const cached = bypassCache ? null : await getEpisode(novelId, chapterToUse);
@@ -881,11 +886,11 @@ function App() {
         </header>
       )}
 
-      {/* 본문 콘텐츠: pageResult 탭에서는 여백 없이 full-width, 그 외에는 중앙 정렬 패딩 유지 */}
+      {/* 본문 콘텐츠: pageResult 및 viewer 탭에서는 여백 없이 full-width, 그 외에는 중앙 정렬 패딩 유지 */}
       <main style={{ 
         flex: 1, 
-        padding: activeTab === 'pageResult' ? '0' : '20px', 
-        maxWidth: activeTab === 'pageResult' ? '100%' : '650px', 
+        padding: (activeTab === 'pageResult' || activeTab === 'viewer') ? '0' : '20px', 
+        maxWidth: (activeTab === 'pageResult' || activeTab === 'viewer') ? '100%' : '650px', 
         margin: '0 auto', 
         width: '100%', 
         boxSizing: 'border-box' 
@@ -1080,7 +1085,7 @@ function App() {
 
         {/* 탭 3: 가독성 리더기 뷰어 (Viewer) */}
         {activeTab === 'viewer' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative', width: '100%' }}>
             
             {/* 번역 진행률 플로팅 프로그래스 바 */}
             {isTranslating && (
@@ -1098,7 +1103,10 @@ function App() {
                 justifyContent: 'space-between',
                 fontWeight: 'bold',
                 boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-                fontSize: '13px'
+                fontSize: '13px',
+                maxWidth: '650px',
+                width: 'calc(100% - 40px)',
+                margin: '0 auto'
               }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <RefreshCw style={{ animation: 'spin 1.2s linear infinite' }} size={16} />
@@ -1126,7 +1134,18 @@ function App() {
               </div>
             )}
 
-            <div style={{ borderBottom: '1px solid #222822', paddingBottom: '12px' }}>
+            {/* 뷰어 상단 헤더 & 컨트롤 영역: 중앙에 정렬하고 양옆 20px 패딩을 주어 가독성 유지 */}
+            <div style={{ 
+              borderBottom: '1px solid #242824', 
+              paddingBottom: '12px',
+              paddingLeft: '20px',
+              paddingRight: '20px',
+              paddingTop: '10px',
+              maxWidth: '650px',
+              width: '100%',
+              margin: '0 auto',
+              boxSizing: 'border-box'
+            }}>
               <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
                 <button 
                   onClick={() => {
@@ -1187,18 +1206,20 @@ function App() {
               fontFamily: readerSettings.fontFamily,
               color: readerSettings.fontColor,
               backgroundColor: readerSettings.bgColor,
-              fontSize: `${readerSettings.fontSize}px`,
-              fontWeight: readerSettings.fontWeight,
-              lineHeight: readerSettings.lineHeight,
-              paddingLeft: `${readerSettings.paddingX}px`,
-              paddingRight: `${readerSettings.paddingX}px`,
+              fontSize: `${parseInt(readerSettings.fontSize) || 17}px`,
+              fontWeight: parseInt(readerSettings.fontWeight) || 400,
+              lineHeight: parseFloat(readerSettings.lineHeight) || 1.8,
+              paddingLeft: `${readerSettings.paddingX !== '' ? readerSettings.paddingX : 0}px`,
+              paddingRight: `${readerSettings.paddingX !== '' ? readerSettings.paddingX : 0}px`,
               paddingTop: '20px',
               paddingBottom: readerSettings.bottomSpacing ? '100px' : '20px',
-              borderRadius: '16px',
-              border: '1px solid #242824',
+              borderRadius: 0,
+              border: 'none',
               display: 'flex',
               flexDirection: 'column',
-              gap: `${readerSettings.paragraphGap}px`
+              gap: `${parseInt(readerSettings.paragraphGap) || 20}px`,
+              width: '100%',
+              boxSizing: 'border-box'
             }}>
               {viewerParagraphs
                 .filter(p => p.translated !== 'AI 번역 대기 중...' && p.translated !== 'AI 번역 가동 중...')
@@ -1241,7 +1262,13 @@ function App() {
                 marginTop: '24px',
                 marginBottom: '40px',
                 paddingTop: '20px',
-                borderTop: '1px solid #252630'
+                borderTop: '1px solid #242824',
+                maxWidth: '650px',
+                width: '100%',
+                margin: '24px auto 40px auto',
+                boxSizing: 'border-box',
+                paddingLeft: '20px',
+                paddingRight: '20px'
               }}>
                 {viewerPrevUrl && (
                   <button 
@@ -1613,63 +1640,68 @@ function App() {
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#a5adce' }}>글자 크기 (px)</label>
+                      <label style={{ fontSize: '11px', color: '#aab0a6' }}>글자 크기 (px)</label>
                       <input 
                         type="number" value={readerSettings.fontSize} 
-                        onChange={(e) => handleUpdateReaderSetting('fontSize', parseInt(e.target.value) || 16)}
+                        onChange={(e) => handleUpdateReaderSetting('fontSize', e.target.value === '' ? '' : (parseInt(e.target.value) || 0))}
                         style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#a5adce' }}>글자 두께 (weight)</label>
+                      <label style={{ fontSize: '11px', color: '#aab0a6' }}>글자 두께 (weight)</label>
                       <input 
                         type="number" step="100" min="100" max="900" value={readerSettings.fontWeight} 
-                        onChange={(e) => handleUpdateReaderSetting('fontWeight', parseInt(e.target.value) || 400)}
+                        onChange={(e) => handleUpdateReaderSetting('fontWeight', e.target.value === '' ? '' : (parseInt(e.target.value) || 0))}
                         style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#a5adce' }}>좌우 간격 (px)</label>
+                      <label style={{ fontSize: '11px', color: '#aab0a6' }}>좌우 간격 (px)</label>
                       <input 
                         type="number" value={readerSettings.paddingX} 
-                        onChange={(e) => handleUpdateReaderSetting('paddingX', parseInt(e.target.value) || 20)}
+                        onChange={(e) => handleUpdateReaderSetting('paddingX', e.target.value === '' ? '' : (parseInt(e.target.value) || 0))}
                         style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#a5adce' }}>줄간격 (line-height)</label>
+                      <label style={{ fontSize: '11px', color: '#aab0a6' }}>줄간격 (line-height)</label>
                       <input 
                         type="number" step="0.1" value={readerSettings.lineHeight} 
-                        onChange={(e) => handleUpdateReaderSetting('lineHeight', parseFloat(e.target.value) || 1.8)}
+                        onChange={(e) => handleUpdateReaderSetting('lineHeight', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
                         style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#a5adce' }}>문장 간격 (margin, px)</label>
+                      <label style={{ fontSize: '11px', color: '#aab0a6' }}>문장 간격 (margin, px)</label>
                       <input 
                         type="number" value={readerSettings.paragraphGap} 
-                        onChange={(e) => handleUpdateReaderSetting('paragraphGap', parseInt(e.target.value) || 12)}
+                        onChange={(e) => handleUpdateReaderSetting('paragraphGap', e.target.value === '' ? '' : (parseInt(e.target.value) || 0))}
                         style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#a5adce' }}>들여쓰기 (em)</label>
+                      <label style={{ fontSize: '11px', color: '#aab0a6' }}>들여쓰기 (em)</label>
                       <input 
                         type="number" step="0.5" value={readerSettings.textIndent} 
-                        onChange={(e) => handleUpdateReaderSetting('textIndent', parseFloat(e.target.value) || 0)}
+                        onChange={(e) => handleUpdateReaderSetting('textIndent', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
                         style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed' }}
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#a5adce' }}>원문 투명도 (0~100 %)</label>
+                      <label style={{ fontSize: '11px', color: '#aab0a6' }}>원문 투명도 (0~100 %)</label>
                       <input 
                         type="number" min="0" max="100" value={readerSettings.opacity} 
                         onChange={(e) => {
-                          let val = parseInt(e.target.value);
-                          if (isNaN(val)) val = 0;
-                          if (val < 0) val = 0;
-                          if (val > 100) val = 100;
-                          handleUpdateReaderSetting('opacity', val);
+                          const valStr = e.target.value;
+                          if (valStr === '') {
+                            handleUpdateReaderSetting('opacity', '');
+                          } else {
+                            let val = parseInt(valStr);
+                            if (isNaN(val)) val = 0;
+                            if (val < 0) val = 0;
+                            if (val > 100) val = 100;
+                            handleUpdateReaderSetting('opacity', val);
+                          }
                         }}
                         style={{ backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '6px', color: '#e2e4ed', fontSize: '13px' }}
                       />

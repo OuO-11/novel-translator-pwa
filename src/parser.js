@@ -110,6 +110,42 @@ export function extractNovelContent(rawHtml, url) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(rawHtml, 'text/html');
 
+  // [중요: 이전화, 다음화, 목차 링크 지능형 사전 수집]
+  // 52shuku나 진강 등에서 <a> 태그나 해당 클래스를 가진 노이즈 부모 요소를 소거하기 전에,
+  // 원본 DOM 트리에서 회차 이동 버튼 정보를 유실 없이 먼저 추출해 둡니다.
+  let prevUrl = '';
+  let nextUrl = '';
+  let indexUrl = '';
+
+  const links = doc.querySelectorAll('a');
+  links.forEach(a => {
+    const text = a.textContent?.trim() || '';
+    const href = a.getAttribute('href') || '';
+    if (!href) return;
+
+    if (text.includes('上一页') || text.includes('이전 페이지') || text.includes('이전화') || text.includes('上一章')) {
+      prevUrl = href;
+    } else if (text.includes('下一页') || text.includes('다음 페이지') || text.includes('다음화') || text.includes('下一章')) {
+      nextUrl = href;
+    } else if (text.includes('目录') || text.includes('목차') || text.includes('목록') || text.includes('返回书页')) {
+      indexUrl = href;
+    }
+  });
+
+  // 상대 경로 절대 경로화 보정
+  const makeAbsolute = (base, relative) => {
+    if (!relative) return '';
+    try {
+      return new URL(relative, base).toString();
+    } catch(e) {
+      return relative;
+    }
+  };
+
+  prevUrl = makeAbsolute(url, prevUrl);
+  nextUrl = makeAbsolute(url, nextUrl);
+  indexUrl = makeAbsolute(url, indexUrl);
+
   // 번역 방해 노이즈 노드(헤더, 푸터, 댓글창, 추천 도서 등) 사전 영구 제거 (14단계)
   const trashSelectors = [
     'header', 'footer', '#footer', '.footer', 'noscript', 'iframe', 'ins', 'script', 'style',
@@ -194,40 +230,6 @@ export function extractNovelContent(rawHtml, url) {
       contentHtml = bodyText.split('\n').map(line => line.trim() ? `<p>${line.trim()}</p>` : '').join('\n');
     }
   }
-
-  // 이전화, 다음화, 목차 링크 수집 (18단계 핵심)
-  let prevUrl = '';
-  let nextUrl = '';
-  let indexUrl = '';
-
-  const links = doc.querySelectorAll('a');
-  links.forEach(a => {
-    const text = a.textContent?.trim() || '';
-    const href = a.getAttribute('href') || '';
-    if (!href) return;
-
-    if (text.includes('上一页') || text.includes('이전 페이지') || text.includes('이전화') || text.includes('上一章')) {
-      prevUrl = href;
-    } else if (text.includes('下一页') || text.includes('다음 페이지') || text.includes('다음화') || text.includes('下一章')) {
-      nextUrl = href;
-    } else if (text.includes('目录') || text.includes('목차') || text.includes('목록') || text.includes('返回书页')) {
-      indexUrl = href;
-    }
-  });
-
-  // 상대 경로 절대 경로화 보정
-  const makeAbsolute = (base, relative) => {
-    if (!relative) return '';
-    try {
-      return new URL(relative, base).toString();
-    } catch(e) {
-      return relative;
-    }
-  };
-
-  prevUrl = makeAbsolute(url, prevUrl);
-  nextUrl = makeAbsolute(url, nextUrl);
-  indexUrl = makeAbsolute(url, indexUrl);
 
   // 정제화 작업: 본문 안의 불필요한 스크립트, 광고성 배너 잔재들 최종 소거
   const cleanDoc = parser.parseFromString(contentHtml, 'text/html');
