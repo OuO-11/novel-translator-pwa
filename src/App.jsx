@@ -563,6 +563,10 @@ function App() {
       } else {
         const { title, paragraphs, prevUrl, nextUrl, indexUrl } = extractNovelContent(data.html, targetUrl);
         
+        if (!paragraphs || paragraphs.length === 0) {
+          throw new Error('소설 본문을 사이트로부터 정상적으로 긁어오지 못했습니다. 본문이 있는 정상적인 뷰어 주소인지 확인해 주세요.');
+        }
+        
         // 21단계 핵심: 소설 제목 한글 자동 번역 및 한글/원문 대조 병기 합성
         let translatedTitle = title;
         try {
@@ -594,6 +598,8 @@ function App() {
             ...existingNovel,
             lastReadChapter: chapterToUse,
             lastReadUrl: targetUrl,
+            lang: selectedLang,
+            presetId: selectedPreset,
             updatedAt: Date.now()
           });
         } else {
@@ -605,6 +611,8 @@ function App() {
             lastReadUrl: targetUrl,
             site: siteName,
             lastReadChapter: chapterToUse,
+            lang: selectedLang,
+            presetId: selectedPreset,
             updatedAt: Date.now()
           });
         }
@@ -819,6 +827,13 @@ function App() {
   const handleLoadNovel = (novel) => {
     const urlToLoad = novel.lastReadUrl || novel.url; // 마지막 읽었던 화수 주소 우선 로드
     const chapterToLoad = novel.lastReadChapter || 1;
+
+    if (novel.lang) {
+      setSelectedLang(novel.lang);
+    }
+    if (novel.presetId) {
+      setSelectedPreset(novel.presetId);
+    }
 
     setInputUrl(urlToLoad);
     setTransMode('viewer');
