@@ -118,6 +118,7 @@ function App() {
   const [viewerTitle, setViewerTitle] = useState('');
   const [viewerParagraphs, setViewerParagraphs] = useState([]); // [{ original, translated }]
   const [novelHtmlResult, setNovelHtmlResult] = useState(''); // 목록 번역 html 결과
+  const [pageSystemPrompt, setPageSystemPrompt] = useState(''); // [39단계] 목록 번역 백그라운드 프롬프트
   const [activeViewerNovelId, setActiveViewerNovelId] = useState(null);
   const [activeViewerChapter, setActiveViewerChapter] = useState(1);
   const [viewerPrevUrl, setViewerPrevUrl] = useState('');
@@ -430,6 +431,94 @@ function App() {
     }
   };
 
+  // [39단계 핵심: iframe 문서 내 텍스트 노드 실시간 번역 교체 함수 (비구씨/콜로모 방식)]
+  const translateIframeDocument = async (iframeDoc, systemPrompt, model, cancelRef) => {
+    const EXCLUDE_TAGS = ['SCRIPT', 'STYLE', 'LINK', 'META', 'HEAD', 'NOSCRIPT', 'TEMPLATE'];
+    const textNodes = [];
+
+    // DOM 트리를 재귀적으로 순회하며 번역할 텍스트 노드 수집
+    function walk(node) {
+      if (node.nodeType === Node.ELEMENT_NODE && EXCLUDE_TAGS.includes(node.tagName)) {
+        return;
+      }
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.nodeValue.trim();
+        if (text.length > 0 && isNaN(text)) { // 순수 숫자 제외
+          textNodes.push(node);
+        }
+      }
+      let child = node.firstChild;
+      while (child) {
+        walk(child);
+        child = child.nextSibling;
+      }
+    }
+
+    try {
+      walk(iframeDoc.body || iframeDoc);
+    } catch (e) {
+      console.warn("DOM walk failed:", e);
+    }
+
+    const totalNodes = textNodes.length;
+    if (totalNodes === 0) {
+      setIsTranslating(false);
+      setTransProgress(100);
+      return;
+    }
+
+    console.log(`[Iframe Real-time Translator] Found ${totalNodes} text nodes to translate.`);
+
+    const BATCH_SIZE = 15;
+    let translatedCount = 0;
+
+    for (let i = 0; i < textNodes.length; i += BATCH_SIZE) {
+      if (cancelRef && cancelRef.current === true) {
+        console.log('[Iframe Real-time Translator] Cancelled by user.');
+        break;
+      }
+
+      const batch = textNodes.slice(i, i + BATCH_SIZE);
+      const batchText = batch.map((node, index) => `[${index}] ${node.nodeValue.trim()}`).join('\n');
+      const batchPrompt = `${systemPrompt}\n\nIMPORTANT: You must translate each line marked with '[number]' in order. Maintain the format '[number] Translated text'. Do not merge lines or omit numbers.`;
+
+      try {
+        const translatedBatch = await translateTextWithRotation(batchText, batchPrompt, model);
+        
+        // 번역 결과를 실제 iframe 문서 노드에 즉시 주입 (실시간 화면 한글 변환!)
+        const lines = translatedBatch.split('\n');
+        const translationMap = {};
+
+        lines.forEach(line => {
+          const match = line.match(/^\[(\d+)\]\s*(.*)/);
+          if (match) {
+            const index = parseInt(match[1]);
+            const translatedVal = match[2].trim();
+            translationMap[index] = translatedVal;
+          }
+        });
+
+        batch.forEach((node, index) => {
+          if (translationMap[index]) {
+            node.nodeValue = translationMap[index];
+          }
+        });
+
+      } catch (e) {
+        console.error(`[Iframe Batch Failed] Index ${i} to ${i + BATCH_SIZE}:`, e);
+        batch.forEach(node => {
+          node.nodeValue = `${node.nodeValue} (번역 실패)`;
+        });
+      }
+
+      translatedCount += batch.length;
+      const progressPercent = Math.min(Math.round((translatedCount / totalNodes) * 100), 100);
+      setTransProgress(progressPercent);
+    }
+
+    setIsTranslating(false);
+  };
+
   // 실시간 번역 공통 구동 코어 함수
   const triggerTranslationFlow = async (targetUrl, targetMode, forceChapter = null, bypassCache = false) => {
     const activeKey = getActiveApiKey();
@@ -466,11 +555,10 @@ function App() {
           ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
           : basePrompt;
 
-        setTransProgress(40);
-        const translatedHtml = await translateFullPage(data.html, finalSystemPrompt, selectedModel, (progress) => {
-          setTransProgress(40 + Math.round(progress * 0.6));
-        }, cancelTranslationRef);
-        setNovelHtmlResult(translatedHtml);
+        setPageSystemPrompt(finalSystemPrompt);
+        setTransProgress(5);
+        // 원본 중국어 HTML을 iframe에 즉시 주입하여 사이트를 바로 렌더링 (비구씨/콜로모 스타일)
+        setNovelHtmlResult(data.html);
         setActiveTab('pageResult');
       } else {
         const { title, paragraphs, prevUrl, nextUrl, indexUrl } = extractNovelContent(data.html, targetUrl);
@@ -646,11 +734,11 @@ function App() {
           // 루프가 도는 동안 비어 있는 인덱스 보정 (누락 및 가동중 텍스트 잔재 소거)
           setViewerParagraphs(prev => {
             return prev.map((p, idx) => {
-              const finalTrans = translatedList[idx] || p.translated;
+              const finalTrans = translatedList[idx];
               const hasDummy = finalTrans === 'AI 번역 대기 중...' || finalTrans === 'AI 번역 가동 중...' || !finalTrans;
               return {
                 original: p.original,
-                translated: hasDummy ? `${p.original} (번역 누락/미완료)` : finalTrans
+                translated: hasDummy ? `${p.original} (번역 실패/미완료)` : finalTrans
               };
             });
           });
@@ -705,6 +793,12 @@ function App() {
       const iframe = e.target;
       const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
       if (!iframeDoc) return;
+
+      // [39단계 핵심] 번역 기동 상태라면 백그라운드에서 실시간 텍스트 번역 교체 태스크 가동 (비구씨/콜로모 스타일)
+      if (isTranslating && !iframeDoc.__isTranslating) {
+        iframeDoc.__isTranslating = true;
+        translateIframeDocument(iframeDoc, pageSystemPrompt, selectedModel, cancelTranslationRef);
+      }
 
       const links = iframeDoc.getElementsByTagName('a');
       for (let link of links) {
