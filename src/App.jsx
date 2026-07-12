@@ -762,7 +762,11 @@ function App() {
       alert('번역 중 오류가 발생했습니다: ' + err.message);
       reportErrorToBackend(err, `triggerTranslationFlow for ${targetUrl}`);
     } finally {
-      setIsTranslating(false);
+      // [39단계 핵심] page 모드는 iframe onLoad 이후 백그라운드 번역이 완료(setIsTranslating(false))를 직접 제어하므로,
+      // viewer 모드일 때만 여기서 동기적으로 번역 상태를 해제합니다.
+      if (targetMode !== 'page') {
+        setIsTranslating(false);
+      }
       getCacheStatistics().then(setCacheStats);
     }
   };
