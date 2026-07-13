@@ -198,3 +198,62 @@ export async function getCacheStatistics() {
     transaction.onerror = (e) => reject('Failed to fetch cache stats: ' + e.target.error);
   });
 }
+
+/**
+ * 보관함 및 에피소드 캐시 전체 데이터를 백업용 Base64 문자열로 추출합니다.
+ */
+export async function exportAllData() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['novels', 'episodes'], 'readonly');
+    const novelsStore = transaction.objectStore('novels');
+    const episodesStore = transaction.objectStore('episodes');
+
+    const novelsReq = novelsStore.getAll();
+    const episodesReq = episodesStore.getAll();
+
+    transaction.oncomplete = () => {
+      const backupData = {
+        novels: novelsReq.result,
+        episodes: episodesReq.result,
+        exportedAt: Date.now()
+      };
+      const jsonStr = JSON.stringify(backupData);
+      const base64Str = btoa(unescape(encodeURIComponent(jsonStr)));
+      resolve(base64Str);
+    };
+
+    transaction.onerror = (e) => reject('Failed to export data: ' + e.target.error);
+  });
+}
+
+/**
+ * 백업용 Base64 텍스트를 복원하여 로컬 IndexedDB에 적재합니다.
+ */
+export async function importAllData(base64Str) {
+  const db = await openDB();
+  const jsonStr = decodeURIComponent(escape(atob(base64Str.trim())));
+  const backupData = JSON.parse(jsonStr);
+
+  if (!backupData || !backupData.novels || !backupData.episodes) {
+    throw new Error('올바르지 않은 백업 데이터 형식입니다.');
+  }
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['novels', 'episodes'], 'readwrite');
+    const novelsStore = transaction.objectStore('novels');
+    const episodesStore = transaction.objectStore('episodes');
+
+    backupData.novels.forEach(novel => {
+      novelsStore.put(novel);
+    });
+
+    backupData.episodes.forEach(episode => {
+      episodesStore.put(episode);
+    });
+
+    transaction.oncomplete = () => resolve(true);
+    transaction.onerror = (e) => reject('데이터 복원에 실패했습니다: ' + e.target.error);
+  });
+}
+

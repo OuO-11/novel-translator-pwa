@@ -1,6 +1,6 @@
 {
-  "name": "NovelTrans - AI 웹소설 번역기 및 보관함",
-  "short_name": "NovelTrans",
+  "name": "ByokTrans - AI 웹소설 번역기 및 보관함",
+  "short_name": "ByokTrans",
   "description": "구글 Gemini AI를 활용한 고품질 웹소설 번역 및 영구 보관용 PWA 리더기",
   "start_url": "/",
   "display": "standalone",

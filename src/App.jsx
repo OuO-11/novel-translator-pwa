@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings, FolderHeart, Star, Trash2, Plus, Download, RefreshCw, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
-import { openDB, saveNovel, getNovels, deleteNovel, saveEpisode, getEpisode, clearOldEpisodes, getCacheStatistics } from './db.js';
+import { openDB, saveNovel, getNovels, deleteNovel, saveEpisode, getEpisode, clearOldEpisodes, getCacheStatistics, exportAllData, importAllData } from './db.js';
 import { getApiKeys, saveApiKeys, getActiveApiKey, fetchAvailableModels, translateTextWithRotation, translateTextStreamWithRotation } from './apiRotator.js';
 import { getPromptsTree, savePreset, deletePreset, getPromptContent } from './promptManager.js';
 import { translateFullPage, extractNovelContent } from './parser.js';
@@ -96,6 +96,10 @@ function App() {
   // 아코디언 접기/열기 상태
   const [showThemeCollapse, setShowThemeCollapse] = useState(true);
   const [showMiscCollapse, setShowMiscCollapse] = useState(true);
+  
+  // 데이터 이전 및 iframe 리프레시 상태 변수
+  const [importText, setImportText] = useState('');
+  const [iframeKey, setIframeKey] = useState(0);
 
   // 번역 입력 및 내부 모드 상태
   const [inputUrl, setInputUrl] = useState('');
@@ -561,7 +565,8 @@ function App() {
 
         setPageSystemPrompt(finalSystemPrompt);
         setTransProgress(5);
-        // 원본 중국어 HTML을 iframe에 즉시 주입하여 사이트를 바로 렌더링 (비구씨/콜로모 스타일)
+        // iframe 강제 갱신용 key 업데이트 (재번역 및 중복 로드 먹통 현상 해결)
+        setIframeKey(prev => prev + 1);
         setNovelHtmlResult(data.html);
         setActiveTab('pageResult');
       } else {
@@ -788,6 +793,10 @@ function App() {
 
   // iframe 내부 링크 클릭 가로채기 핸들러
   const handleIframeNavigate = (clickedUrl) => {
+    // 이전 페이지의 번역 가동을 선제적으로 취소하여 렉 및 충돌 방지
+    cancelTranslationRef.current = true;
+    translationAbortControllerRef.current?.abort();
+
     const originalAbsoluteUrl = resolveAbsoluteUrl(inputUrlRef.current, clickedUrl);
     
     if (isNovelEpisodeUrl(originalAbsoluteUrl)) {
@@ -880,31 +889,58 @@ function App() {
   };
 
   const handleReportFeedback = async () => {
-    if (viewerParagraphs.length === 0) {
+    const isViewer = activeTab === 'viewer';
+    const isPage = activeTab === 'pageResult';
+
+    if (isViewer && viewerParagraphs.length === 0) {
       alert('현재 감상 중인 소설 텍스트가 존재하지 않아 신고할 수 없습니다.');
+      return;
+    }
+    if (isPage && !novelHtmlResult) {
+      alert('현재 번역된 웹페이지 결과가 존재하지 않아 신고할 수 없습니다.');
       return;
     }
 
     const confirmReport = window.confirm(
-      "현재 뷰어 화면의 번역 결과(원본 문장, 번역문, 소설 주소, 번역 모델 등)를 개발자에게 피드백으로 전송하시겠습니까?\n\n*개인 API Key 등의 정보는 절대 포함되지 않으며 익명으로 안전하게 전송됩니다."
+      "현재 화면의 번역 결과(원본 문장, 번역문, 소설 주소, 번역 모델 등)를 개발자에게 피드백으로 전송하시겠습니까?\n\n*개인 API Key 등의 정보는 절대 포함되지 않으며 익명으로 안전하게 전송됩니다."
     );
     if (!confirmReport) return;
 
+    // 사용자 추가 메모 수집 (3번째 요구사항)
+    const userMemo = window.prompt("번역 오류에 대해 개발자에게 보낼 상세 내용(선택사항):");
+    if (userMemo === null) return; // 취소 클릭 시 전송 중단
+
     try {
-      const payload = {
+      let payload = {
         time: new Date().toISOString(),
         timestamp: Date.now().toString(),
         url: inputUrl,
         model: selectedModel,
-        title: viewerTitle,
-        chapter: activeViewerChapter,
-        paragraphsCount: viewerParagraphs.length,
-        paragraphs: viewerParagraphs.map(p => ({
-          original: p.original || '',
-          translated: p.translated || ''
-        })),
-        userAgent: navigator.userAgent
+        userAgent: navigator.userAgent,
+        memo: userMemo.trim()
       };
+
+      if (isViewer) {
+        payload = {
+          ...payload,
+          mode: 'viewer',
+          title: viewerTitle,
+          chapter: activeViewerChapter,
+          paragraphsCount: viewerParagraphs.length,
+          paragraphs: viewerParagraphs.map(p => ({
+            original: p.original || '',
+            translated: p.translated || ''
+          }))
+        };
+      } else {
+        // 웹페이지 번역 모드 피드백 (HTML 파일 크기 축소를 위해 일부 잘라서 전송)
+        payload = {
+          ...payload,
+          mode: 'page',
+          title: '웹페이지 번역 결과',
+          htmlSnippet: novelHtmlResult.slice(0, 50000)
+        };
+      }
 
       const res = await fetch('/api/report_feedback', {
         method: 'POST',
@@ -923,7 +959,7 @@ function App() {
       if (resData.status === 'submitted') {
         alert('피드백이 성공적으로 제출되었습니다. 감사합니다!');
       } else {
-        alert('피드백 전송 완료 (로컬 기록됨)');
+        alert('서버 콘솔에 오류 내용이 기록되었습니다.');
       }
     } catch (err) {
       alert('피드백 전송 도중 에러가 발생했습니다: ' + err.message);
@@ -997,7 +1033,7 @@ function App() {
               <BookOpen size={24} color="#11111b" />
             </div>
             <span style={{ fontSize: '20px', fontWeight: 'bold', letterSpacing: '-0.5px' }}>
-              Novel<span style={{ color: '#81c784' }}>Trans</span>
+              Byok<span style={{ color: '#81c784' }}>Trans</span>
             </span>
           </div>
         </header>
@@ -1049,7 +1085,19 @@ function App() {
                     <FolderHeart size={22} color="#e78284" />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <h4 style={{ margin: '0 0 6px 0', fontSize: '15px', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <h4 
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ 
+                        margin: '0 0 6px 0', 
+                        fontSize: '15px', 
+                        fontWeight: 'bold', 
+                        overflowX: 'auto', 
+                        overflowY: 'hidden', 
+                        whiteSpace: 'nowrap',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none'
+                      }}
+                    >
                       {novel.title}
                     </h4>
                     <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
@@ -1490,16 +1538,25 @@ function App() {
               )}
               {/* 재번역 버튼 (번역 완료 후에만 표시) */}
               {!isTranslating && novelHtmlResult && (
-                <button
-                  onClick={() => triggerTranslationFlow(inputUrl, 'page', null, true)}
-                  style={{ background: '#222822', border: '1px solid #81c784', color: '#81c784', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', marginLeft: 'auto', whiteSpace: 'nowrap' }}
-                >
-                  재번역
-                </button>
+                <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
+                  <button
+                    onClick={() => triggerTranslationFlow(inputUrl, 'page', null, true)}
+                    style={{ background: '#222822', border: '1px solid #81c784', color: '#81c784', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', whiteSpace: 'nowrap' }}
+                  >
+                    재번역
+                  </button>
+                  <button
+                    onClick={handleReportFeedback}
+                    style={{ background: '#222822', border: '1px solid #e78284', color: '#e78284', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', whiteSpace: 'nowrap' }}
+                  >
+                    오류 신고
+                  </button>
+                </div>
               )}
             </div>
-            {/* iframe — 여백 없이 풀스크린 */}
+            {/* iframe — 여백 없이 풀스크린 (key 갱신을 통해 중복 로드 및 상태 오염 방지) */}
             <iframe 
+              key={iframeKey}
               srcDoc={novelHtmlResult}
               title="Page Translation Result"
               onLoad={handleIframeLoad}
@@ -1926,6 +1983,67 @@ function App() {
               >
                 오래된 캐시 일괄 삭제 (최근 30일 미열람 분량)
               </button>
+            </div>
+
+            {/* 보관함 데이터 백업 및 복원 (도메인 이전용) */}
+            <div style={{ backgroundColor: '#121212', padding: '16px', borderRadius: '14px', border: '1px solid #252630', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <h4 style={{ margin: 0, fontSize: '14px', color: '#81c784' }}>이관용 보관함 백업 및 복원</h4>
+              <p style={{ margin: 0, fontSize: '11px', color: '#a5adce', lineHeight: '1.4' }}>
+                도메인이 바뀌어 보관함이 비어 보일 때 사용합니다. 구 도메인 앱에서 백업 코드를 복사한 뒤, 새 도메인 앱에 붙여넣기 하세요.
+              </p>
+              <button 
+                onClick={async () => {
+                  try {
+                    const base64Str = await exportAllData();
+                    await navigator.clipboard.writeText(base64Str);
+                    alert('보관함 전체 데이터가 클립보드에 안전하게 복사되었습니다. 새 도메인 앱 설정창의 복원 란에 붙여넣어 주세요.');
+                  } catch (err) {
+                    alert('백업 생성에 실패했습니다: ' + err.message);
+                  }
+                }}
+                style={{
+                  backgroundColor: '#81c784', border: 'none', color: '#11111b', borderRadius: '8px', padding: '10px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer'
+                }}
+              >
+                현재 보관함 전체 백업 코드 복사
+              </button>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px', borderTop: '1px solid #252630', paddingTop: '10px' }}>
+                <label style={{ fontSize: '12px', color: '#a5adce' }}>복원할 백업 코드 붙여넣기</label>
+                <textarea 
+                  rows={3}
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  placeholder="복사한 백업 코드를 여기에 붙여넣으세요."
+                  style={{
+                    backgroundColor: '#252630', border: 'none', borderRadius: '8px', padding: '10px', color: '#e2e4ed', fontSize: '11px', fontFamily: 'monospace'
+                  }}
+                />
+                <button 
+                  onClick={async () => {
+                    if (!importText.trim()) {
+                      alert('백업 코드를 먼저 붙여넣어 주세요.');
+                      return;
+                    }
+                    if (!confirm('백업 데이터를 복원하시겠습니까? 기존 데이터에 추가/병합됩니다.')) return;
+                    try {
+                      await importAllData(importText);
+                      alert('보관함 데이터 복원이 성공적으로 완료되었습니다!');
+                      setImportText('');
+                      const list = await getNovels();
+                      setNovels(list);
+                      getCacheStatistics().then(setCacheStats);
+                    } catch (err) {
+                      alert('복원에 실패했습니다. 올바른 백업 코드인지 확인해 주세요: ' + err.message);
+                    }
+                  }}
+                  style={{
+                    backgroundColor: '#e5c07b', border: 'none', color: '#11111b', borderRadius: '8px', padding: '10px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', marginTop: '4px'
+                  }}
+                >
+                  백업 코드로 복원 실행
+                </button>
+              </div>
             </div>
 
           </div>
