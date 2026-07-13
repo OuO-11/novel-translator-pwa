@@ -134,6 +134,7 @@ function App() {
   
   // 데이터 이전 및 iframe 리프레시 상태 변수
   const [importText, setImportText] = useState('');
+  const [backupText, setBackupText] = useState('');
   const [iframeKey, setIframeKey] = useState(0);
 
   // 번역 입력 및 내부 모드 상태
@@ -2030,8 +2031,8 @@ function App() {
                 onClick={async () => {
                   try {
                     const base64Str = await exportAllData();
-                    await copyToClipboard(base64Str);
-                    alert('보관함 전체 데이터가 클립보드에 안전하게 복사되었습니다. 새 도메인 앱 설정창의 복원 란에 붙여넣어 주세요.');
+                    setBackupText(base64Str);
+                    alert('백업 코드가 성공적으로 생성되었습니다. 아래에 나타난 [2. 클립보드에 백업 코드 복사] 버튼을 눌러 완료해 주세요.');
                   } catch (err) {
                     alert('백업 생성에 실패했습니다: ' + err.message);
                   }
@@ -2040,8 +2041,37 @@ function App() {
                   backgroundColor: '#81c784', border: 'none', color: '#11111b', borderRadius: '8px', padding: '10px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer'
                 }}
               >
-                현재 보관함 전체 백업 코드 복사
+                1. 보관함 백업 코드 생성하기
               </button>
+
+              {backupText && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px', borderTop: '1px dotted #252630', paddingTop: '8px' }}>
+                  <label style={{ fontSize: '11px', color: '#a5adce' }}>생성된 백업 코드 (임시 보관)</label>
+                  <textarea 
+                    rows={4}
+                    readOnly
+                    value={backupText}
+                    style={{
+                      backgroundColor: '#252630', border: 'none', borderRadius: '8px', padding: '10px', color: '#a5adce', fontSize: '10px', fontFamily: 'monospace', resize: 'none'
+                    }}
+                  />
+                  <button 
+                    onClick={async () => {
+                      try {
+                        await copyToClipboard(backupText);
+                        alert('백업 코드가 클립보드에 안전하게 복사되었습니다. 새 도메인 앱의 복원 란에 붙여넣어 주세요.');
+                      } catch (err) {
+                        alert('클립보드 복사에 실패했습니다: ' + err.message);
+                      }
+                    }}
+                    style={{
+                      backgroundColor: '#a6d189', border: 'none', color: '#11111b', borderRadius: '8px', padding: '10px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer'
+                    }}
+                  >
+                    2. 클립보드에 백업 코드 복사
+                  </button>
+                </div>
+              )}
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px', borderTop: '1px solid #252630', paddingTop: '10px' }}>
                 <label style={{ fontSize: '12px', color: '#a5adce' }}>복원할 백업 코드 붙여넣기</label>
