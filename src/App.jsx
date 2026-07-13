@@ -54,6 +54,41 @@ const DEFAULT_READER_SETTINGS = {
   bottomSpacing: true
 };
 
+/**
+ * 모바일 PWA 환경에서의 비동기 지연으로 인한 클립보드 차단 우회를 포함한 하이브리드 복사 헬퍼 함수
+ */
+const copyToClipboard = async (text) => {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      console.warn("Modern clipboard API failed, using fallback copy:", e);
+    }
+  }
+
+  // Fallback: 가상 textarea 생성 복사 (동기식 컨텍스트 유지로 모바일 PWA 차단 방어)
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.style.position = "fixed";
+  textArea.style.top = "-9999px";
+  textArea.style.left = "-9999px";
+  document.body.appendChild(textArea);
+  
+  textArea.focus();
+  textArea.select();
+
+  try {
+    const successful = document.execCommand('copy');
+    document.body.removeChild(textArea);
+    if (!successful) throw new Error("copy command failed");
+    return true;
+  } catch (err) {
+    document.body.removeChild(textArea);
+    throw err;
+  }
+};
+
 function App() {
   const [activeTab, setActiveTab] = useState('library');
   const [novels, setNovels] = useState([]);
@@ -1995,7 +2030,7 @@ function App() {
                 onClick={async () => {
                   try {
                     const base64Str = await exportAllData();
-                    await navigator.clipboard.writeText(base64Str);
+                    await copyToClipboard(base64Str);
                     alert('보관함 전체 데이터가 클립보드에 안전하게 복사되었습니다. 새 도메인 앱 설정창의 복원 란에 붙여넣어 주세요.');
                   } catch (err) {
                     alert('백업 생성에 실패했습니다: ' + err.message);
