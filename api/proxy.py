@@ -103,7 +103,7 @@ def report_feedback():
 
         github_token = os.environ.get('NOVELTRANS_GITHUB_TOKEN') or os.environ.get('GITHUB_TOKEN')
         repo_owner = "OuO-11"
-        repo_name = "novel-translator-pwa"
+        repo_name = "byokTrans"
         
         timestamp = data.get('timestamp') or re.sub(r'[^0-9]', '', data.get('time', ''))[:14]
         if not timestamp:
