@@ -924,6 +924,87 @@ function App() {
     }
   };
 
+  const handleBackupDownload = async () => {
+    try {
+      const base64Str = await exportAllData();
+      const jsonStr = decodeURIComponent(escape(atob(base64Str)));
+      
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+      link.download = `byoktrans_backup_${dateStr}.json`;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      alert('보관함 백업 파일이 다운로드 폴더에 성공적으로 저장되었습니다.');
+    } catch (err) {
+      alert('백업 파일 생성에 실패했습니다: ' + err.message);
+    }
+  };
+
+  const handleBackupUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!confirm('선택한 백업 파일로 보관함 데이터를 복원하시겠습니까? 기존 데이터에 추가/병합됩니다.')) {
+      e.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const jsonStr = event.target.result;
+        const backupData = JSON.parse(jsonStr);
+
+        if (!backupData || !backupData.novels || !backupData.episodes) {
+          throw new Error('올바르지 않은 백업 파일 형식입니다.');
+        }
+
+        const db = await openDB();
+        await new Promise((resolve, reject) => {
+          const transaction = db.transaction(['novels', 'episodes'], 'readwrite');
+          const novelsStore = transaction.objectStore('novels');
+          const episodesStore = transaction.objectStore('episodes');
+
+          backupData.novels.forEach(novel => {
+            novelsStore.put(novel);
+          });
+
+          backupData.episodes.forEach(episode => {
+            episodesStore.put(episode);
+          });
+
+          transaction.oncomplete = () => resolve(true);
+          transaction.onerror = (err) => reject(err);
+        });
+
+        alert('보관함 파일 복원이 성공적으로 완료되었습니다!');
+        
+        const list = await getNovels();
+        setNovels(list);
+        getCacheStatistics().then(setCacheStats);
+      } catch (err) {
+        alert('복원에 실패했습니다. 정상적인 백업 파일인지 확인해 주세요: ' + err.message);
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.onerror = () => {
+      alert('파일을 읽는 도중 오류가 발생했습니다.');
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+
   const handleReportFeedback = async () => {
     const isViewer = activeTab === 'viewer';
     const isPage = activeTab === 'pageResult';
@@ -2025,89 +2106,27 @@ function App() {
             <div style={{ backgroundColor: '#121212', padding: '16px', borderRadius: '14px', border: '1px solid #252630', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <h4 style={{ margin: 0, fontSize: '14px', color: '#81c784' }}>이관용 보관함 백업 및 복원</h4>
               <p style={{ margin: 0, fontSize: '11px', color: '#a5adce', lineHeight: '1.4' }}>
-                도메인이 바뀌어 보관함이 비어 보일 때 사용합니다. 구 도메인 앱에서 백업 코드를 복사한 뒤, 새 도메인 앱에 붙여넣기 하세요.
+                도메인이 바뀌어 보관함이 비어 보일 때 사용합니다. 구 도메인 앱에서 백업 파일을 다운로드받은 뒤, 새 도메인 앱에서 불러오기 하세요.
               </p>
               <button 
-                onClick={async () => {
-                  try {
-                    const base64Str = await exportAllData();
-                    setBackupText(base64Str);
-                    alert('백업 코드가 성공적으로 생성되었습니다. 아래에 나타난 [2. 클립보드에 백업 코드 복사] 버튼을 눌러 완료해 주세요.');
-                  } catch (err) {
-                    alert('백업 생성에 실패했습니다: ' + err.message);
-                  }
-                }}
+                onClick={handleBackupDownload}
                 style={{
                   backgroundColor: '#81c784', border: 'none', color: '#11111b', borderRadius: '8px', padding: '10px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer'
                 }}
               >
-                1. 보관함 백업 코드 생성하기
+                현재 보관함 전체 백업 파일 다운로드
               </button>
-
-              {backupText && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px', borderTop: '1px dotted #252630', paddingTop: '8px' }}>
-                  <label style={{ fontSize: '11px', color: '#a5adce' }}>생성된 백업 코드 (임시 보관)</label>
-                  <textarea 
-                    rows={4}
-                    readOnly
-                    value={backupText}
-                    style={{
-                      backgroundColor: '#252630', border: 'none', borderRadius: '8px', padding: '10px', color: '#a5adce', fontSize: '10px', fontFamily: 'monospace', resize: 'none'
-                    }}
-                  />
-                  <button 
-                    onClick={async () => {
-                      try {
-                        await copyToClipboard(backupText);
-                        alert('백업 코드가 클립보드에 안전하게 복사되었습니다. 새 도메인 앱의 복원 란에 붙여넣어 주세요.');
-                      } catch (err) {
-                        alert('클립보드 복사에 실패했습니다: ' + err.message);
-                      }
-                    }}
-                    style={{
-                      backgroundColor: '#a6d189', border: 'none', color: '#11111b', borderRadius: '8px', padding: '10px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer'
-                    }}
-                  >
-                    2. 클립보드에 백업 코드 복사
-                  </button>
-                </div>
-              )}
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px', borderTop: '1px solid #252630', paddingTop: '10px' }}>
-                <label style={{ fontSize: '12px', color: '#a5adce' }}>복원할 백업 코드 붙여넣기</label>
-                <textarea 
-                  rows={3}
-                  value={importText}
-                  onChange={(e) => setImportText(e.target.value)}
-                  placeholder="복사한 백업 코드를 여기에 붙여넣으세요."
+                <label style={{ fontSize: '12px', color: '#a5adce' }}>백업 파일 불러오기 및 복원</label>
+                <input 
+                  type="file"
+                  accept=".json"
+                  onChange={handleBackupUpload}
                   style={{
-                    backgroundColor: '#252630', border: 'none', borderRadius: '8px', padding: '10px', color: '#e2e4ed', fontSize: '11px', fontFamily: 'monospace'
+                    fontSize: '12px', color: '#bac2de', cursor: 'pointer', marginTop: '4px'
                   }}
                 />
-                <button 
-                  onClick={async () => {
-                    if (!importText.trim()) {
-                      alert('백업 코드를 먼저 붙여넣어 주세요.');
-                      return;
-                    }
-                    if (!confirm('백업 데이터를 복원하시겠습니까? 기존 데이터에 추가/병합됩니다.')) return;
-                    try {
-                      await importAllData(importText);
-                      alert('보관함 데이터 복원이 성공적으로 완료되었습니다!');
-                      setImportText('');
-                      const list = await getNovels();
-                      setNovels(list);
-                      getCacheStatistics().then(setCacheStats);
-                    } catch (err) {
-                      alert('복원에 실패했습니다. 올바른 백업 코드인지 확인해 주세요: ' + err.message);
-                    }
-                  }}
-                  style={{
-                    backgroundColor: '#e5c07b', border: 'none', color: '#11111b', borderRadius: '8px', padding: '10px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', marginTop: '4px'
-                  }}
-                >
-                  백업 코드로 복원 실행
-                </button>
               </div>
             </div>
 
