@@ -101,7 +101,7 @@ def report_feedback():
         data.pop('apiKeys', None)
         data.pop('keys', None)
 
-        github_token = os.environ.get('NOVELTRANS_GITHUB_TOKEN') or os.environ.get('GITHUB_TOKEN')
+        github_token = os.environ.get('BYOKTRANS_GITHUB_TOKEN') or os.environ.get('GITHUB_TOKEN')
         repo_owner = "OuO-11"
         repo_name = "byokTrans"
         
