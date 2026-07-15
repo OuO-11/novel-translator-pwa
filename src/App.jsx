@@ -209,14 +209,11 @@ function App() {
   // 50단계 핵심: 뒤로가기 제어용 상태 Ref 동기화 및 History API 인터셉터
   const activeTabRef = useRef(activeTab);
 
-  useEffect(() => {
-    // 뷰어나 번역 결과 탭으로 '새로 진입'할 때 브라우저 히스토리 스택을 하나 쌓음 (뒤로가기 방어막)
-    if ((activeTab === 'viewer' || activeTab === 'pageResult') && 
-        (activeTabRef.current !== 'viewer' && activeTabRef.current !== 'pageResult')) {
-      window.history.pushState({ isAppInternal: true }, '', window.location.pathname);
-    }
-    activeTabRef.current = activeTab;
+  // popstate 핸들러용 최신 함수 참조 유지
+  const triggerTranslationFlowRef = useRef(null);
 
+  useEffect(() => {
+    // 50단계/53단계: 단순 탭 진입 시 pushState 하는 기존 로직 폐기 (triggerTranslationFlow 내부에서 더 정밀하게 처리함)
     if (activeTab === 'translate' || activeTab === 'viewer' || activeTab === 'pageResult') {
       setLastTranslateSubTab(activeTab);
     }
@@ -224,12 +221,22 @@ function App() {
 
   useEffect(() => {
     const handlePopState = (e) => {
-      // 뷰어나 목록 번역 모드에서 시스템 뒤로가기 발생 시, 앱 종료를 막고 이전 화면으로 복귀시킵니다.
-      if (activeTabRef.current === 'viewer' || activeTabRef.current === 'pageResult') {
-        // 긴급 중지
-        cancelTranslationRef.current = true;
-        translationAbortControllerRef.current?.abort();
-        setActiveTab('translate'); // 뷰어를 빠져나와 주소 입력창 탭으로 복귀
+      // 뒤로가기 발생 시 무조건 진행 중인 번역 강제 취소
+      cancelTranslationRef.current = true;
+      translationAbortControllerRef.current?.abort();
+
+      if (e.state && e.state.isAppInternal) {
+        // 53단계 핵심: 진짜 히스토리 복원 (과거 URL로 백그라운드 재번역/캐시로드 트리거)
+        const { url, mode, chapter } = e.state;
+        setInputUrl(url);
+        setTransMode(mode);
+        // 항상 최신 렌더링의 함수를 호출하여 Closure Stale 방지
+        if (triggerTranslationFlowRef.current) {
+          triggerTranslationFlowRef.current(url, mode, chapter, false, true);
+        }
+      } else {
+        // 히스토리 스택 최하단(초기 진입점)이라면 메인 탭으로 복귀
+        setActiveTab('translate');
       }
     };
     
@@ -647,13 +654,15 @@ function App() {
   };
 
   // 실시간 번역 공통 구동 코어 함수
-  const triggerTranslationFlow = async (targetUrl, targetMode, forceChapter = null, bypassCache = false) => {
+  const triggerTranslationFlow = async (targetUrl, targetMode, forceChapter = null, bypassCache = false, fromPopState = false) => {
     const activeKey = getActiveApiKey();
     if (!activeKey) {
       alert('API Key를 먼저 설정에서 1개 이상 등록해 주세요.');
       setActiveTab('presets');
       return;
     }
+
+    triggerTranslationFlowRef.current = triggerTranslationFlow; // 현재 최신 클로저 함수 저장
 
     setIsTranslating(true);
     cancelTranslationRef.current = false;
@@ -686,6 +695,9 @@ function App() {
         setTransProgress(5);
         // iframe 강제 갱신용 key 업데이트 (재번역 및 중복 로드 먹통 현상 해결)
         setIframeKey(prev => prev + 1);
+        if (!fromPopState) {
+          window.history.pushState({ isAppInternal: true, url: targetUrl, mode: 'page', chapter: null }, '', window.location.pathname);
+        }
         setNovelHtmlResult(data.html);
         setActiveTab('pageResult');
       } else {
@@ -760,11 +772,17 @@ function App() {
           const parsedLines = JSON.parse(cached.translatedText);
           const origLines = JSON.parse(cached.originalText || '[]');
           const formatted = parsedLines.map((t, i) => ({ translated: t, original: origLines[i] || '' }));
+          if (!fromPopState) {
+            window.history.pushState({ isAppInternal: true, url: targetUrl, mode: 'viewer', chapter: chapterToUse }, '', window.location.pathname);
+          }
           setViewerParagraphs(formatted);
           setTransProgress(100);
           setActiveTab('viewer');
         } else {
           const initialViewerLines = paragraphs.map(p => ({ original: p, translated: 'AI 번역 대기 중...' }));
+          if (!fromPopState) {
+            window.history.pushState({ isAppInternal: true, url: targetUrl, mode: 'viewer', chapter: chapterToUse }, '', window.location.pathname);
+          }
           setViewerParagraphs(initialViewerLines);
           setActiveTab('viewer');
 
@@ -972,16 +990,28 @@ function App() {
         translateIframeDocument(iframeDoc, pageSystemPrompt, selectedModel, cancelTranslationRef);
       }
 
-      const links = iframeDoc.getElementsByTagName('a');
-      for (let link of links) {
-        link.addEventListener('click', (event) => {
+      // [52단계 핵심] 심층 이벤트 캡처링: <a> 태그 루프 폐기 및 모든 클릭/드롭다운 가로채기
+      // 1. 모든 링크 클릭 가로채기 (DOM 구조 무관, 가장 먼저 낚아챔)
+      iframeDoc.addEventListener('click', (event) => {
+        const a = event.target.closest('a');
+        if (a && a.href) {
           event.preventDefault();
-          const targetHref = link.href;
-          if (targetHref) {
-            handleIframeNavigate(targetHref);
+          event.stopPropagation();
+          handleIframeNavigate(a.href);
+        }
+      }, true);
+
+      // 2. Select 콤보박스 (목차 드롭다운 등) 가로채기
+      iframeDoc.addEventListener('change', (event) => {
+        if (event.target.tagName === 'SELECT') {
+          const val = event.target.value;
+          if (val && (val.startsWith('http') || val.startsWith('/'))) {
+            event.preventDefault();
+            event.stopPropagation();
+            handleIframeNavigate(val);
           }
-        });
-      }
+        }
+      }, true);
     } catch (err) {
       console.warn("Iframe click capture bypassed:", err);
     }
