@@ -28,7 +28,9 @@ const DEFAULT_BASE_PROMPTS = {
 1. Translate into fluent Korean light novel style. Avoid direct translation of Japanese grammar style (e.g., '~의 경우', '~에 있어서' 같은 직역 지양).
 2. Translate dialogues naturally based on character relationships and personality.
 3. Return only the Korean translation.
-4. Keep the character names consistent in official Korean localizations.`
+4. Keep the character names consistent in official Korean localizations.
+5. Text inside brackets [] is the reading (furigana/ruby) or annotation of the preceding word. Reflect the meaning naturally in the translation, or include it in parentheses if needed.
+6. Do NOT modify, remove, or add any HTML <p> tags or their id attributes. Only translate the text content inside each tag.`
 };
 
 // 리더기 테마 및 스타일 기본값 정의 (리디/카카페 감성의 웜 다크 테마 기본 장착)
@@ -693,7 +695,8 @@ function App() {
             ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
             : basePrompt;
 
-          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: You must translate each line marked with '[number]' in order. Maintain the format '[number] Translated text'. Do not merge lines or omit numbers.`;
+          // [45단계] HTML 태그 방식 지시어: AI가 <p> 태그 구조를 유지하며 내용만 번역하도록 강제
+          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: Each paragraph is wrapped in a <p> tag with a unique id attribute. Translate ONLY the text content inside each <p> tag into Korean. Keep the <p> tag and its id attribute exactly as-is. Output the translated paragraphs in the same <p id="...">translated text</p> format. Do not merge, skip, or reorder paragraphs.`;
 
           const translatedList = new Array(paragraphs.length).fill('');
 
@@ -719,56 +722,72 @@ function App() {
 
             console.log(`[Translation Continuation #${continuationCount + 1}] Processing ${pendingIndices.length} pending paragraphs...`);
 
-            // 남은 미완성 단락들만 2차 묶음으로 선별 합성
-            const pendingRawText = pendingIndices.map(idx => `[${idx}] ${paragraphs[idx].trim()}`).join('\n');
+            // [45단계] HTML 태그 방식: <p id="인덱스">원문</p> 형태로 묶음 조립
+            // 인덱스를 Base36으로 인코딩하여 숫자/대괄호와 충돌 방지
+            const indexToId = (i) => i.toString(36).toUpperCase();
+            const idToIndex = (id) => parseInt(id, 36);
+            const pendingRawText = pendingIndices.map(idx => `<p id="${indexToId(idx)}">${paragraphs[idx].trim()}</p>`).join('\n');
 
             try {
-              // 1회 호출 실시간 스트리밍 구동
+              // [45단계] colomo.dev 방식 버퍼 분할 스트리밍 파서
+              // 청크를 </p> 기준으로 분할 → 완성된 조각만 즉시 파싱, 미완성 조각은 버퍼에 킵
+              let streamBuffer = '';
+              let maxProcessedIndex = -1;
+
+              const handleStreamChunk = (chunk) => {
+                streamBuffer += chunk;
+                const parts = streamBuffer.split(/<\/p>/i);
+                // 마지막 원소는 아직 </p>가 오지 않은 미완성 조각 → 버퍼에 보관
+                streamBuffer = parts.pop();
+
+                for (const part of parts) {
+                  // <p id="ID">번역문 형태에서 ID와 번역문 추출
+                  const m = part.match(/<p(?:\s+id="([A-Za-z0-9]+)")?>([^]*)/i);
+                  if (!m) continue;
+                  const rawId = m[1];
+                  if (!rawId) continue;
+                  const idx = idToIndex(rawId);
+                  if (!pendingIndices.includes(idx)) continue;
+                  const translatedVal = m[2].replace(/<[^>]*>/g, '').trim();
+                  if (!translatedVal) continue;
+
+                  translatedList[idx] = translatedVal;
+                  if (idx > maxProcessedIndex) maxProcessedIndex = idx;
+                }
+
+                setViewerParagraphs(prev => {
+                  const next = [...prev];
+                  paragraphs.forEach((orig, idx) => {
+                    if (translatedList[idx] !== undefined && translatedList[idx] !== '') {
+                      next[idx] = { original: orig, translated: translatedList[idx] };
+                    } else if (pendingIndices.includes(idx) && idx <= maxProcessedIndex) {
+                      next[idx] = { original: orig, translated: 'AI 번역 가동 중...' };
+                    } else if (pendingIndices.includes(idx)) {
+                      next[idx] = { original: orig, translated: 'AI 번역 대기 중...' };
+                    }
+                  });
+                  return next;
+                });
+
+                const completedCount = translatedList.filter(t => t !== '').length;
+                const percent = Math.min(Math.round((completedCount / paragraphs.length) * 100), 99);
+                setTransProgress(percent);
+              };
+
               await translateTextStreamWithRotation(
                 pendingRawText,
                 finalSystemPrompt,
                 selectedModel,
-                (accumulated) => {
-                  // 스트리밍 텍스트가 수신될 때마다 파싱하여 화면에 실시간 주입
-                  const lines = accumulated.split('\n');
-                  const translationMap = {};
-                  let maxProcessedIndex = -1;
-
-                  lines.forEach(line => {
-                    const match = line.match(/^\[(\d+)\]\s*(.*)/);
-                    if (match) {
-                      const idx = parseInt(match[1]);
-                      const translatedVal = match[2].trim();
-                      if (pendingIndices.includes(idx)) {
-                        translationMap[idx] = translatedVal;
-                        translatedList[idx] = translatedVal;
-                        if (idx > maxProcessedIndex) {
-                          maxProcessedIndex = idx;
-                        }
-                      }
-                    }
-                  });
-
-                  setViewerParagraphs(prev => {
-                    const next = [...prev];
-                    paragraphs.forEach((orig, idx) => {
-                      if (translatedList[idx] !== undefined && translatedList[idx] !== '') {
-                        next[idx] = { original: orig, translated: translatedList[idx] };
-                      } else if (pendingIndices.includes(idx) && idx <= maxProcessedIndex) {
-                        next[idx] = { original: orig, translated: 'AI 번역 가동 중...' };
-                      } else if (pendingIndices.includes(idx)) {
-                        next[idx] = { original: orig, translated: 'AI 번역 대기 중...' };
-                      }
-                    });
-                    return next;
-                  });
-
-                  const completedCount = translatedList.filter(t => t !== '').length;
-                  const percent = Math.min(Math.round((completedCount / paragraphs.length) * 100), 99);
-                  setTransProgress(percent);
-                },
+                handleStreamChunk,
                 translationAbortControllerRef.current.signal
               );
+
+              // [45단계] 스트리밍 종료 후 버퍼에 잔여 텍스트가 있으면 강제 파싱
+              // (AI가 마지막 </p>를 빠뜨리는 경우 방어)
+              if (streamBuffer.trim()) {
+                handleStreamChunk('</p>');
+              }
+
             } catch (streamErr) {
               console.warn(`[Stream Continuation Warning] Attempt ${continuationCount + 1} encountered error:`, streamErr);
               

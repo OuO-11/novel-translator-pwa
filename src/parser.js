@@ -231,6 +231,10 @@ export function extractNovelContent(rawHtml, url) {
     }
   }
 
+  // [45단계] 루비 문자 전처리: cleanDoc 파싱 전에 <ruby>漢字<rt>よみ</rt></ruby> → 漢字[よみ] 로 치환
+  // 일본 소설의 독음 주석(후리가나)을 보존하여 AI 번역 품질 향상
+  contentHtml = contentHtml.replace(/<ruby>([^<]*?)<rt[^>]*>([^<]*?)<\/rt><\/ruby>/gi, '$1[$2]');
+
   // 정제화 작업: 본문 안의 불필요한 스크립트, 광고성 배너 잔재들 최종 소거
   const cleanDoc = parser.parseFromString(contentHtml, 'text/html');
   const scripts = cleanDoc.querySelectorAll('script, style, iframe, ins');
