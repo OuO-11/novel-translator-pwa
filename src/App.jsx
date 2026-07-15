@@ -133,6 +133,8 @@ function App() {
   // 아코디언 접기/열기 상태
   const [showThemeCollapse, setShowThemeCollapse] = useState(true);
   const [showMiscCollapse, setShowMiscCollapse] = useState(true);
+  const [showBasePromptCollapse, setShowBasePromptCollapse] = useState(true);
+  const [showPresetPromptCollapse, setShowPresetPromptCollapse] = useState(true);
   
   // 데이터 이전 및 iframe 리프레시 상태 변수
   const [importText, setImportText] = useState('');
@@ -1859,9 +1861,17 @@ function App() {
             </div>
 
             {/* 프롬프트 1 (Base Prompt) */}
-            <div style={{ backgroundColor: '#111311', padding: '16px', borderRadius: '14px', border: '1px solid #222822', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <h4 style={{ margin: 0, fontSize: '14px', color: '#e5c07b' }}>🌐 1. 기본 언어 번역기 지침 (프롬프트 1)</h4>
+            <div style={{ backgroundColor: '#111311', padding: '0', borderRadius: '14px', border: '1px solid #222822', overflow: 'hidden' }}>
+              <div 
+                onClick={() => setShowBasePromptCollapse(!showBasePromptCollapse)}
+                style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', backgroundColor: '#161816' }}
+              >
+                <h4 style={{ margin: 0, fontSize: '14px', color: '#e5c07b' }}>🌐 1. 기본 언어 번역기 지침 (프롬프트 1)</h4>
+                {showBasePromptCollapse ? <ChevronUp size={16} color="#a5adce" /> : <ChevronDown size={16} color="#a5adce" />}
+              </div>
               
+              {showBasePromptCollapse && (
+                <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button 
                   onClick={() => setSelectedLang('chinese')} 
@@ -1907,12 +1917,22 @@ function App() {
                 />
                 <span style={{ fontSize: '11px', color: '#e5c07b', textAlign: 'right' }}>* 입력 즉시 임시 자동 저장됩니다.</span>
               </div>
+                </div>
+              )}
             </div>
 
             {/* 프롬프트 2 (Sub Preset) */}
-            <div style={{ backgroundColor: '#111311', padding: '16px', borderRadius: '14px', border: '1px solid #222822', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <h4 style={{ margin: 0, fontSize: '14px', color: '#83c5be' }}>📝 2. 작품별 추가 지침 프리셋 (프롬프트 2)</h4>
+            <div style={{ backgroundColor: '#111311', padding: '0', borderRadius: '14px', border: '1px solid #222822', overflow: 'hidden' }}>
+              <div 
+                onClick={() => setShowPresetPromptCollapse(!showPresetPromptCollapse)}
+                style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', backgroundColor: '#161816' }}
+              >
+                <h4 style={{ margin: 0, fontSize: '14px', color: '#83c5be' }}>📝 2. 작품별 추가 지침 프리셋 (프롬프트 2)</h4>
+                {showPresetPromptCollapse ? <ChevronUp size={16} color="#a5adce" /> : <ChevronDown size={16} color="#a5adce" />}
+              </div>
               
+              {showPresetPromptCollapse && (
+                <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button 
                   onClick={() => setSelectedLang('chinese')} 
