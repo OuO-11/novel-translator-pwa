@@ -2038,8 +2038,9 @@ function App() {
                   </button>
                 </div>
               </div>
+                </div>
+              )}
             </div>
-
 
             {/* colomo.dev 연동 리더기 커스텀 대시보드 */}
             
