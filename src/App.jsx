@@ -206,11 +206,15 @@ function App() {
   // 27단계 핵심: 설정/보관함 이동 후 실시간번역 탭 복귀 시 보던 뷰어 화면 복원
   const [lastTranslateSubTab, setLastTranslateSubTab] = useState('translate');
 
-  // 50단계 핵심: 뒤로가기 제어용 상태 Ref 동기화 및 History API 인터셉터
+  // 50단계/53단계 핵심: 뒤로가기 제어용 상태 Ref 동기화 및 History API 인터셉터
   const activeTabRef = useRef(activeTab);
 
   // popstate 핸들러용 최신 함수 참조 유지
   const triggerTranslationFlowRef = useRef(null);
+
+  // 54단계 핵심: 번역 세션 고유 ID (비동기 충돌 방지) 및 페이지 번역 인메모리 캐시
+  const translationSessionIdRef = useRef(0);
+  const pageCacheRef = useRef({});
 
   useEffect(() => {
     // 50단계/53단계: 단순 탭 진입 시 pushState 하는 기존 로직 폐기 (triggerTranslationFlow 내부에서 더 정밀하게 처리함)
@@ -565,8 +569,8 @@ function App() {
     }
   };
 
-  // [39단계 핵심: iframe 문서 내 텍스트 노드 실시간 번역 교체 함수 (비구씨/콜로모 방식)]
-  const translateIframeDocument = async (iframeDoc, systemPrompt, model, cancelRef) => {
+  // [39단계/54단계 핵심: iframe 문서 내 텍스트 노드 실시간 번역 교체 함수 (비구씨/콜로모 방식)]
+  const translateIframeDocument = async (iframeDoc, systemPrompt, model, cancelRef, sessionId, url) => {
     const EXCLUDE_TAGS = ['SCRIPT', 'STYLE', 'LINK', 'META', 'HEAD', 'NOSCRIPT', 'TEMPLATE'];
     const textNodes = [];
 
@@ -596,8 +600,10 @@ function App() {
 
     const totalNodes = textNodes.length;
     if (totalNodes === 0) {
-      setIsTranslating(false);
-      setTransProgress(100);
+      if (translationSessionIdRef.current === sessionId) {
+        setIsTranslating(false);
+        setTransProgress(100);
+      }
       return;
     }
 
@@ -607,8 +613,8 @@ function App() {
     let translatedCount = 0;
 
     for (let i = 0; i < textNodes.length; i += BATCH_SIZE) {
-      if (cancelRef && cancelRef.current === true) {
-        console.log('[Iframe Real-time Translator] Cancelled by user.');
+      if (translationSessionIdRef.current !== sessionId || (cancelRef && cancelRef.current === true)) {
+        console.log('[Iframe Real-time Translator] Cancelled or superseded by new session.');
         break;
       }
 
@@ -647,10 +653,20 @@ function App() {
 
       translatedCount += batch.length;
       const progressPercent = Math.min(Math.round((translatedCount / totalNodes) * 100), 100);
-      setTransProgress(progressPercent);
+      if (translationSessionIdRef.current === sessionId) {
+        setTransProgress(progressPercent);
+      }
     }
 
-    setIsTranslating(false);
+    if (translationSessionIdRef.current === sessionId) {
+      setIsTranslating(false);
+      try {
+        // [54단계] 완성된 번역 HTML을 메모리 캐시에 저장
+        pageCacheRef.current[url] = iframeDoc.documentElement.outerHTML;
+      } catch (e) {
+        console.warn('Failed to cache page HTML:', e);
+      }
+    }
   };
 
   // 실시간 번역 공통 구동 코어 함수
@@ -664,6 +680,9 @@ function App() {
 
     triggerTranslationFlowRef.current = triggerTranslationFlow; // 현재 최신 클로저 함수 저장
 
+    translationSessionIdRef.current += 1;
+    const currentSessionId = translationSessionIdRef.current;
+
     setIsTranslating(true);
     cancelTranslationRef.current = false;
     setClickedOriginals({});
@@ -674,6 +693,19 @@ function App() {
     const basePrompt = basePrompts[selectedLang] || '';
     const rawSubPrompt = selectedPreset === 'default' ? '' : getPromptContent(selectedLang, selectedPreset);
     const chapterToUse = forceChapter !== null ? forceChapter : detectChapterFromUrl(targetUrl);
+
+    // [54단계 핵심] 웹페이지 모드(page) 인메모리 캐시 히트 시 즉시 반환 (콜로모급 뒤로가기 체감)
+    if (targetMode === 'page' && !bypassCache && pageCacheRef.current[targetUrl]) {
+      setTransProgress(100);
+      setIsTranslating(false);
+      setIframeKey(prev => prev + 1);
+      if (!fromPopState) {
+        window.history.pushState({ isAppInternal: true, url: targetUrl, mode: 'page', chapter: null }, '', window.location.pathname);
+      }
+      setNovelHtmlResult(pageCacheRef.current[targetUrl]);
+      setActiveTab('pageResult');
+      return;
+    }
 
     try {
       setTransProgress(20);
@@ -984,10 +1016,10 @@ function App() {
       const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
       if (!iframeDoc) return;
 
-      // [39단계 핵심] 번역 기동 상태라면 백그라운드에서 실시간 텍스트 번역 교체 태스크 가동 (비구씨/콜로모 스타일)
+      // [39단계/54단계 핵심] 번역 기동 상태라면 백그라운드에서 실시간 텍스트 번역 교체 태스크 가동
       if (isTranslating && !iframeDoc.__isTranslating) {
         iframeDoc.__isTranslating = true;
-        translateIframeDocument(iframeDoc, pageSystemPrompt, selectedModel, cancelTranslationRef);
+        translateIframeDocument(iframeDoc, pageSystemPrompt, selectedModel, cancelTranslationRef, translationSessionIdRef.current, inputUrlRef.current);
       }
 
       // [52단계 핵심] 심층 이벤트 캡처링: <a> 태그 루프 폐기 및 모든 클릭/드롭다운 가로채기
