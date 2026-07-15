@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings, FolderHeart, Star, Trash2, Plus, Download, RefreshCw, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
-import { openDB, saveNovel, getNovels, deleteNovel, saveEpisode, getEpisode, clearOldEpisodes, getCacheStatistics, exportAllData, importAllData } from './db.js';
+import { openDB, saveNovel, getNovels, deleteNovel, saveEpisode, getEpisode, clearOldEpisodes, getCacheStatistics, exportAllData, importAllData, deleteEpisodes } from './db.js';
 import { getApiKeys, saveApiKeys, getActiveApiKey, fetchAvailableModels, translateTextWithRotation, translateTextStreamWithRotation } from './apiRotator.js';
 import { getPromptsTree, savePreset, deletePreset, getPromptContent } from './promptManager.js';
 import { translateFullPage, extractNovelContent } from './parser.js';
@@ -670,6 +670,10 @@ function App() {
 
         setActiveViewerNovelId(novelId);
 
+        if (bypassCache && novelId && chapterToUse) {
+          await deleteEpisodes(novelId, [chapterToUse]);
+        }
+
         const cached = bypassCache ? null : await getEpisode(novelId, chapterToUse);
         if (cached) {
           const parsedLines = JSON.parse(cached.translatedText);
@@ -816,15 +820,22 @@ function App() {
           });
 
           // 최종 캐시 디스크 1회 기록
-          const cleanTranslatedText = translatedList.map((t, idx) => t || paragraphs[idx]);
-          await saveEpisode(novelId, chapterToUse, JSON.stringify(cleanTranslatedText), JSON.stringify(paragraphs));
+          const successCount = translatedList.filter(t => t && t.length > 0).length;
+          if (successCount > 0) {
+            const cleanTranslatedText = translatedList.map((t, idx) => t || paragraphs[idx]);
+            await saveEpisode(novelId, chapterToUse, JSON.stringify(cleanTranslatedText), JSON.stringify(paragraphs));
+          }
         }
         
         getNovels().then(setNovels);
       }
     } catch (err) {
-      alert('번역 중 오류가 발생했습니다: ' + err.message);
-      reportErrorToBackend(err, `triggerTranslationFlow for ${targetUrl}`);
+      if (cancelTranslationRef.current || err.name === 'AbortError') {
+        console.log('[Translation] Cancelled by user.');
+      } else {
+        alert('번역 중 오류가 발생했습니다: ' + err.message);
+        reportErrorToBackend(err, `triggerTranslationFlow for ${targetUrl}`);
+      }
     } finally {
       // [39단계 핵심] page 모드는 iframe onLoad 이후 백그라운드 번역이 완료(setIsTranslating(false))를 직접 제어하므로,
       // viewer 모드일 때만 여기서 동기적으로 번역 상태를 해제합니다.
@@ -843,7 +854,7 @@ function App() {
     const detectedChapter = detectChapterFromUrl(inputUrl);
     setActiveViewerChapter(detectedChapter);
 
-    triggerTranslationFlow(inputUrl, finalMode, finalMode === 'viewer' ? detectedChapter : null);
+    triggerTranslationFlow(inputUrl, finalMode, finalMode === 'viewer' ? detectedChapter : null, true);
   };
 
   // iframe 내부 링크 클릭 가로채기 핸들러
