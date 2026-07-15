@@ -201,14 +201,39 @@ function App() {
   const cancelTranslationRef = useRef(false);
   const translationAbortControllerRef = useRef(null);
 
-  // 27단계 핵심: 설정/보관함 이동 후 실시간번역 탭 복귀 시 보던 뷰어 화면을 고스란히 복원하는 서브탭 상태 및 동기화 이펙트
+  // 27단계 핵심: 설정/보관함 이동 후 실시간번역 탭 복귀 시 보던 뷰어 화면 복원
   const [lastTranslateSubTab, setLastTranslateSubTab] = useState('translate');
 
+  // 50단계 핵심: 뒤로가기 제어용 상태 Ref 동기화 및 History API 인터셉터
+  const activeTabRef = useRef(activeTab);
+
   useEffect(() => {
+    // 뷰어나 번역 결과 탭으로 '새로 진입'할 때 브라우저 히스토리 스택을 하나 쌓음 (뒤로가기 방어막)
+    if ((activeTab === 'viewer' || activeTab === 'pageResult') && 
+        (activeTabRef.current !== 'viewer' && activeTabRef.current !== 'pageResult')) {
+      window.history.pushState({ isAppInternal: true }, '', window.location.pathname);
+    }
+    activeTabRef.current = activeTab;
+
     if (activeTab === 'translate' || activeTab === 'viewer' || activeTab === 'pageResult') {
       setLastTranslateSubTab(activeTab);
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    const handlePopState = (e) => {
+      // 뷰어나 목록 번역 모드에서 시스템 뒤로가기 발생 시, 앱 종료를 막고 이전 화면으로 복귀시킵니다.
+      if (activeTabRef.current === 'viewer' || activeTabRef.current === 'pageResult') {
+        // 긴급 중지
+        cancelTranslationRef.current = true;
+        translationAbortControllerRef.current?.abort();
+        setActiveTab('translate'); // 뷰어를 빠져나와 주소 입력창 탭으로 복귀
+      }
+    };
+    
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // 뷰어 및 렌더링 상태
   const [viewerTitle, setViewerTitle] = useState('');
@@ -1520,7 +1545,11 @@ function App() {
                 <button 
                   onClick={() => {
                     setLastTranslateSubTab('translate');
-                    setActiveTab('translate');
+                    if (window.history.state?.isAppInternal) {
+                      window.history.back(); // popstate 리스너가 가로채어 setActiveTab('translate') 실행
+                    } else {
+                      setActiveTab('translate');
+                    }
                   }}
                   style={{ background: '#181c18', border: 'none', color: '#81c784', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
                 >
@@ -1713,7 +1742,14 @@ function App() {
               flexShrink: 0
             }}>
               <button 
-                onClick={() => setActiveTab('translate')}
+                onClick={() => {
+                  setLastTranslateSubTab('translate');
+                  if (window.history.state?.isAppInternal) {
+                    window.history.back();
+                  } else {
+                    setActiveTab('translate');
+                  }
+                }}
                 style={{ background: '#252630', border: 'none', color: '#e2e4ed', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap' }}
               >
                 ← 번역창
