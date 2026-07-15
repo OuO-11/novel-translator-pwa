@@ -139,6 +139,60 @@ function App() {
   const [backupText, setBackupText] = useState('');
   const [iframeKey, setIframeKey] = useState(0);
 
+  // 48단계: 테마 프리셋 상태
+  const [themePresets, setThemePresets] = useState(() => {
+    const cached = localStorage.getItem('noveltrans_theme_presets');
+    return cached ? JSON.parse(cached) : {};
+  });
+  const [newThemePresetName, setNewThemePresetName] = useState('');
+
+  const handleSaveThemePreset = () => {
+    if (!newThemePresetName.trim()) return alert('프리셋 이름을 입력하세요.');
+    const updated = { ...themePresets, [newThemePresetName.trim()]: readerSettings };
+    setThemePresets(updated);
+    localStorage.setItem('noveltrans_theme_presets', JSON.stringify(updated));
+    setNewThemePresetName('');
+    alert(`테마 [${newThemePresetName.trim()}] 저장 완료!`);
+  };
+
+  const handleLoadThemePreset = (presetName) => {
+    if (themePresets[presetName]) {
+      setReaderSettings(themePresets[presetName]);
+      localStorage.setItem('noveltrans_reader_settings', JSON.stringify(themePresets[presetName]));
+    }
+  };
+
+  const handleDeleteThemePreset = (presetName, e) => {
+    e.stopPropagation();
+    if (window.confirm(`테마 [${presetName}] 삭제하시겠습니까?`)) {
+      const updated = { ...themePresets };
+      delete updated[presetName];
+      setThemePresets(updated);
+      localStorage.setItem('noveltrans_theme_presets', JSON.stringify(updated));
+    }
+  };
+
+  // 49단계: 프롬프트 입력창 모달 상태
+  const [showPresetModal, setShowPresetModal] = useState(false);
+  const [modalPresetTarget, setModalPresetTarget] = useState(null); // 'basePrompt', 'newPresetContent'
+  const [modalPresetValue, setModalPresetValue] = useState('');
+
+  const openPresetModal = (target, currentValue) => {
+    setModalPresetTarget(target);
+    setModalPresetValue(currentValue);
+    setShowPresetModal(true);
+  };
+
+  const handleSaveModalPreset = () => {
+    if (modalPresetTarget === 'basePrompt') {
+      handleUpdateBasePrompt(selectedLang, modalPresetValue);
+    } else if (modalPresetTarget === 'newPresetContent') {
+      setNewPresetContent(modalPresetValue);
+    }
+    setShowPresetModal(false);
+  };
+
+
   // 번역 입력 및 내부 모드 상태
   const [inputUrl, setInputUrl] = useState('');
   const [transMode, setTransMode] = useState('viewer'); // 'page' (목록 번역) or 'viewer' (본문 뷰어)
@@ -1507,7 +1561,7 @@ function App() {
                       fontWeight: 'bold'
                     }}
                   >
-                    번역 시작
+                    다시 번역
                   </button>
                 )}
               </div>
@@ -1798,9 +1852,14 @@ function App() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '11px', color: '#a5adce' }}>
-                  {selectedLang === 'chinese' ? '중국어' : '일본어'} 번역의 기둥이 되는 시스템 지침입니다.
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ fontSize: '11px', color: '#a5adce' }}>
+                    {selectedLang === 'chinese' ? '중국어' : '일본어'} 번역의 기둥이 되는 시스템 지침입니다.
+                  </label>
+                  <button onClick={() => openPresetModal('basePrompt', basePrompts[selectedLang])} style={{ background: 'none', border: 'none', color: '#e5c07b', cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: '1' }} title="전체화면 편집">
+                    ⛶
+                  </button>
+                </div>
                 <textarea 
                   rows={6}
                   value={basePrompts[selectedLang]}
@@ -1875,9 +1934,14 @@ function App() {
 
               {/* 신규 등록 / 수정 폼 */}
               <div style={{ borderTop: '1px solid #222822', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <label style={{ fontSize: '12px', color: editingPresetId ? '#81c784' : '#a5adce' }}>
-                  {editingPresetId ? '프리셋 수정 중 — 이름/내용 변경 후 저장' : '새 지침 추가'}
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ fontSize: '12px', color: editingPresetId ? '#81c784' : '#a5adce' }}>
+                    {editingPresetId ? '프리셋 수정 중 — 이름/내용 변경 후 저장' : '새 지침 추가'}
+                  </label>
+                  <button onClick={() => openPresetModal('newPresetContent', newPresetContent)} style={{ background: 'none', border: 'none', color: '#83c5be', cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: '1' }} title="전체화면 편집">
+                    ⛶
+                  </button>
+                </div>
                 <input
                   type="text" placeholder="예: 코난 덕질용 번역체"
                   value={newPresetName}
@@ -1938,6 +2002,32 @@ function App() {
               {showThemeCollapse && (
                 <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
                   
+                  {/* 테마 프리셋 UI */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderBottom: '1px solid #222822', paddingBottom: '12px', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {Object.keys(themePresets).map(presetName => (
+                        <div key={presetName} style={{ display: 'flex', alignItems: 'center', backgroundColor: '#222822', borderRadius: '6px', overflow: 'hidden' }}>
+                          <button onClick={() => handleLoadThemePreset(presetName)} style={{ background: 'none', border: 'none', color: '#81c784', padding: '6px 10px', fontSize: '12px', cursor: 'pointer' }}>
+                            {presetName}
+                          </button>
+                          <button onClick={(e) => handleDeleteThemePreset(presetName, e)} style={{ background: '#3d2525', border: 'none', color: '#e78284', padding: '6px 8px', fontSize: '11px', cursor: 'pointer' }}>
+                            X
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input 
+                        type="text" value={newThemePresetName} onChange={(e) => setNewThemePresetName(e.target.value)}
+                        placeholder="현재 테마 저장 (이름 입력)"
+                        style={{ flex: 1, backgroundColor: '#222822', border: 'none', borderRadius: '6px', padding: '8px', color: '#e2e4ed', fontSize: '12px' }}
+                      />
+                      <button onClick={handleSaveThemePreset} style={{ backgroundColor: '#81c784', border: 'none', borderRadius: '6px', padding: '6px 12px', color: '#11111b', fontWeight: 'bold', fontSize: '12px', cursor: 'pointer' }}>
+                        저장
+                      </button>
+                    </div>
+                  </div>
+
                   {/* 인풋 스타일 컨트롤 Grid */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -2164,6 +2254,33 @@ function App() {
         )}
 
       </main>
+
+      {/* 49단계: 프롬프트 전체화면 모달 */}
+      {showPresetModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+          backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 100,
+          display: 'flex', flexDirection: 'column', padding: '20px', boxSizing: 'border-box'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, color: '#e2e4ed', fontSize: '18px' }}>프롬프트 전체화면 편집</h3>
+            <button onClick={() => setShowPresetModal(false)} style={{ background: 'none', border: 'none', color: '#e78284', fontSize: '24px', cursor: 'pointer', lineHeight: '1' }}>×</button>
+          </div>
+          <textarea
+            value={modalPresetValue}
+            onChange={(e) => setModalPresetValue(e.target.value)}
+            style={{
+              flex: 1, backgroundColor: '#222822', border: '1px solid #81c784', borderRadius: '12px',
+              padding: '16px', color: '#e2e4ed', fontSize: '14px', fontFamily: 'monospace', resize: 'none',
+              lineHeight: '1.6'
+            }}
+          />
+          <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+            <button onClick={() => setShowPresetModal(false)} style={{ flex: 1, backgroundColor: '#252630', border: 'none', color: '#e2e4ed', padding: '14px', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>취소</button>
+            <button onClick={handleSaveModalPreset} style={{ flex: 2, backgroundColor: 'linear-gradient(135deg, #81c784, #83c5be)', backgroundColor: '#81c784', border: 'none', color: '#11111b', padding: '14px', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>적용 및 닫기</button>
+          </div>
+        </div>
+      )}
 
       {/* 하단 네비게이션 */}
       <footer style={{
