@@ -830,8 +830,8 @@ function App() {
             ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
             : basePrompt;
 
-          // [58단계] 태그 부작용 완전 제거: 순수 텍스트 줄바꿈 유지 번역만 지시
-          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: You must translate the user's text into Korean. Preserve the EXACT number of paragraphs and line breaks as the original text. Do not merge, skip, or reorder paragraphs. Only output the translated text.`;
+          // [59단계] 콜로모 방식 롤백 및 Assistant Prefill 적용: 구글 자체 검열 우회 및 효율성 극대화
+          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: You must translate the user's text into Korean. Preserve the EXACT number of paragraphs and line breaks as the original text. Do not merge, skip, or reorder paragraphs. Only output the translated text. Do not output any conversational text. You MUST end your response with </main>.`;
 
           const translatedList = new Array(paragraphs.length).fill('');
 
@@ -905,7 +905,8 @@ function App() {
                 finalSystemPrompt,
                 selectedModel,
                 handleStreamChunk,
-                translationAbortControllerRef.current.signal
+                translationAbortControllerRef.current.signal,
+                '<main id="번역">\n' // [59단계 핵심] 검열 우회용 Assistant Prefill
               );
 
             } catch (streamErr) {

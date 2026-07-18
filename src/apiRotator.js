@@ -211,8 +211,9 @@ export async function translateTextWithRotation(textToTranslate, systemInstructi
  * @param {string} model 사용할 Gemini 모델명
  * @param {function} onChunk 실시간 번역 텍스트 누적 시 마다 호출되는 콜백 (accumulatedText => {})
  * @param {object} abortSignal 번역 중지 트리거용 AbortSignal
+ * @param {string} assistantPrefill (선택) AI가 이어서 작성하도록 미리 던져주는 답변 프리필 (예: "<main>")
  */
-export async function translateTextStreamWithRotation(textToTranslate, systemInstruction, model = 'gemini-1.5-flash', onChunk, abortSignal) {
+export async function translateTextStreamWithRotation(textToTranslate, systemInstruction, model = 'gemini-1.5-flash', onChunk, abortSignal, assistantPrefill = null) {
   const keys = getApiKeys();
   if (keys.length === 0) {
     throw new Error('API Key가 등록되어 있지 않습니다. 설정에서 키를 먼저 입력해 주세요.');
@@ -230,14 +231,22 @@ export async function translateTextStreamWithRotation(textToTranslate, systemIns
     const cleanedModelName = model.startsWith('models/') ? model : `models/${model}`;
     const url = `https://generativelanguage.googleapis.com/v1beta/${cleanedModelName}:streamGenerateContent?key=${apiKey}`;
 
+    const contentsArray = [
+      {
+        role: "user",
+        parts: [{ text: textToTranslate }]
+      }
+    ];
+
+    if (assistantPrefill) {
+      contentsArray.push({
+        role: "model",
+        parts: [{ text: assistantPrefill }]
+      });
+    }
+
     const requestBody = {
-      contents: [
-        {
-          parts: [
-            { text: textToTranslate }
-          ]
-        }
-      ],
+      contents: contentsArray,
       systemInstruction: {
         parts: [
           { text: systemInstruction }
