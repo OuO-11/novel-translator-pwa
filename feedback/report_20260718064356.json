@@ -1,0 +1,5 @@
+{
+  "time": "2026-07-18T06:43:56.611Z",
+  "url": "https://www.52shuku.net/jiakong/11_b/bjW8B_31.html",
+  "memo": "AUTO-FATAL-REPORT: status: 400 - AI 응답 파싱 실패 또는 Safety 차단.\n[RAW 스트림 JSON]: [{\n  \"promptFeedback\": {\n    \"blockReason\": \"PROHIBITED_CONTENT\"\n  },\n  \"usageMetadata\": {\n    \"promptTokenCount\": 2397,\n    \"totalTokenCount\": 2397,\n    \"promptTokensDetails\": [\n      {\n        \"modality\": \"TEXT\",\n        \"tokenCount\": 2397\n      }\n    ],\n    \"serviceTier\": \"standard\"\n  },\n  \"modelVersion\": \"gemini-3.1-flash-lite\",\n  \"responseId\": \"qyBbaqLNBs2ivr0PkPuTyQ4\"\n}\n]"
+}
