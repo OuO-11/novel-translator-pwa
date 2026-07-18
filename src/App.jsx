@@ -925,7 +925,10 @@ function App() {
                 break; // 무지성 재시도 폭파
               } else if (errMsg.includes('status: 400')) {
                 // 2. 400 Bad Request 등 구조적 문법 오류: 재시도 무의미
-                alert(`[API 요청 오류] 번역 요청 중 치명적인 문법/구조 오류가 발생했습니다.\n사유: ${errMsg}`);
+                const userAgreed = window.confirm(`[API 요청 오류] 번역 요청 중 치명적인 문법/구조 오류가 발생했습니다.\n사유: status: 400 - ai 응답이 비어있거나 차단되었습니다.\n\n서버로 상세 오류 내역을 전송하시겠습니까?`);
+                if (userAgreed) {
+                  reportErrorToBackend(streamErr, `status: 400 Empty/Safety response on ${targetUrl}`);
+                }
                 break; // 재시도 폭파
               } else {
                 // 3. 500 등 네트워크 일시 오류: 백그라운드 재시도 허용 (유저 편의성)
