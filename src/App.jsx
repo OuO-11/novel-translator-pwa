@@ -830,8 +830,8 @@ function App() {
             ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
             : basePrompt;
 
-          // [45단계] HTML 태그 방식 지시어: AI가 <p> 태그 구조를 유지하며 내용만 번역하도록 강제
-          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: Each paragraph is wrapped in a <p> tag with a unique id attribute. Translate ONLY the text content inside each <p> tag into Korean. Keep the <p> tag and its id attribute exactly as-is. Output the translated paragraphs in the same <p id="...">translated text</p> format. Do not merge, skip, or reorder paragraphs.`;
+          // [55.1단계] Colomo 방식 시스템 지시어: 문단 태그 강제 삭제, 줄바꿈 유지 번역만 지시
+          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: The user will provide the original text wrapped in <main id="원문">. You must output ONLY the translated Korean text, preserving the exact number of paragraphs and line breaks. Do not merge or skip paragraphs.`;
 
           const translatedList = new Array(paragraphs.length).fill('');
 
@@ -857,54 +857,29 @@ function App() {
 
             console.log(`[Translation Continuation #${continuationCount + 1}] Processing ${pendingIndices.length} pending paragraphs...`);
 
-            // [45단계] HTML 태그 방식: <p id="인덱스">원문</p> 형태로 묶음 조립
-            // 인덱스를 Base36으로 인코딩하여 숫자/대괄호와 충돌 방지
-            const indexToId = (i) => i.toString(36).toUpperCase();
-            const idToIndex = (id) => parseInt(id, 36);
-            const pendingRawText = pendingIndices.map(idx => `<p id="${indexToId(idx)}">${paragraphs[idx].trim()}</p>`).join('\n');
+            // [55.1단계] Colomo 방식: <main> 태그로 전체 원문 통째로 묶기
+            const joinedText = pendingIndices.map(idx => paragraphs[idx].trim()).join('\n');
+            const pendingRawText = `<main id="원문">\n${joinedText}\n</main>\n<main id="번역">\n`;
 
             try {
-              // [45단계/55단계] colomo.dev 방식 버퍼 분할 스트리밍 파서 및 Sequential Fallback
-              // 청크를 </p> 기준으로 분할 → 완성된 조각만 즉시 파싱, 미완성 조각은 버퍼에 킵
-              let streamBuffer = '';
-              let fullAiTextBuffer = ''; // 전체 순수 텍스트 백업 (포맷 붕괴 대비 Fallback 용도)
-              let maxProcessedIndex = -1;
+              // [55.1단계] 100% 순차 매칭 파서 (스트리밍 버그 수정)
+              let fullAiTextBuffer = ''; 
 
               const handleStreamChunk = (chunk) => {
-                streamBuffer += chunk;
-                fullAiTextBuffer += chunk;
-                const parts = streamBuffer.split(/<\/p>/i);
-                // 마지막 원소는 아직 </p>가 오지 않은 미완성 조각 → 버퍼에 보관
-                streamBuffer = parts.pop();
-
-                for (const part of parts) {
-                  // [55단계] 정규식 강화: 따옴표 유무, 공백 유무를 모두 허용
-                  let rawId = null;
-                  let translatedVal = '';
-                  const m = part.match(/<p(?:\s+id=["']?([A-Za-z0-9]+)["']?)?\s*>([^]*)/i);
-                  
-                  if (m && m[1]) {
-                    rawId = m[1];
-                    translatedVal = m[2];
-                  } else {
-                    // Fallback for [ID] text format if AI ignored HTML
-                    const m2 = part.match(/\[([A-Za-z0-9]+)\]([^]*)/);
-                    if (m2 && m2[1]) {
-                      rawId = m2[1];
-                      translatedVal = m2[2];
-                    }
+                // 스트리밍 버그 Fix: 누적이 아니라 덮어쓰기! apiRotator가 전체 누적 텍스트를 던져줌
+                fullAiTextBuffer = chunk;
+                
+                // 순수 텍스트에서 태그 찌꺼기(<main> 등)를 날리고 줄바꿈 기준으로 쪼갬
+                const lines = fullAiTextBuffer.replace(/<[^>]*>/g, '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                
+                let maxProcessedIndex = -1;
+                lines.forEach((line, i) => {
+                  if (i < pendingIndices.length) {
+                    const idx = pendingIndices[i];
+                    translatedList[idx] = line;
+                    if (idx > maxProcessedIndex) maxProcessedIndex = idx;
                   }
-
-                  if (!rawId) continue;
-                  const idx = idToIndex(rawId);
-                  if (!pendingIndices.includes(idx)) continue;
-                  
-                  translatedVal = translatedVal.replace(/<[^>]*>/g, '').trim();
-                  if (!translatedVal) continue;
-
-                  translatedList[idx] = translatedVal;
-                  if (idx > maxProcessedIndex) maxProcessedIndex = idx;
-                }
+                });
 
                 setViewerParagraphs(prev => {
                   const next = [...prev];
@@ -932,27 +907,6 @@ function App() {
                 handleStreamChunk,
                 translationAbortControllerRef.current.signal
               );
-
-              // [45단계] 스트리밍 종료 후 버퍼에 잔여 텍스트가 있으면 강제 파싱
-              // (AI가 마지막 </p>를 빠뜨리는 경우 방어)
-              if (streamBuffer.trim()) {
-                handleStreamChunk('</p>');
-              }
-
-              // [55단계 핵심] Sequential Fallback (콜로모식 순차 매칭)
-              // AI가 포맷을 완전히 무시하고 순수 텍스트만 출력했을 경우, 파싱 성공 개수가 0개임
-              const parsedCount = translatedList.filter(t => t !== '').length;
-              if (parsedCount === 0 && fullAiTextBuffer.trim()) {
-                console.log(`[Sequential Fallback] AI ignored tags. Applying sequential mapping for ${pendingIndices.length} items.`);
-                // 순수 텍스트에서 태그 찌꺼기를 날리고 줄바꿈 기준으로 쪼갬
-                const lines = fullAiTextBuffer.replace(/<[^>]*>/g, '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
-                
-                lines.forEach((line, i) => {
-                  if (i < pendingIndices.length) {
-                    translatedList[pendingIndices[i]] = line;
-                  }
-                });
-              }
 
             } catch (streamErr) {
               console.warn(`[Stream Continuation Warning] Attempt ${continuationCount + 1} encountered error:`, streamErr);
