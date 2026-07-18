@@ -210,7 +210,8 @@ function App() {
   const activeTabRef = useRef(activeTab);
 
   // popstate 핸들러용 최신 함수 참조 유지
-  const triggerTranslationFlowRef = useRef(null);
+  const startViewerTranslationRef = useRef(null);
+  const startPageTranslationRef = useRef(null);
 
   // 54단계 핵심: 번역 세션 고유 ID (비동기 충돌 방지) 및 페이지 번역 인메모리 캐시
   const translationSessionIdRef = useRef(0);
@@ -235,8 +236,10 @@ function App() {
         setInputUrl(url);
         setTransMode(mode);
         // 항상 최신 렌더링의 함수를 호출하여 Closure Stale 방지
-        if (triggerTranslationFlowRef.current) {
-          triggerTranslationFlowRef.current(url, mode, chapter, false, true);
+        if (mode === 'viewer') {
+          if (startViewerTranslationRef.current) startViewerTranslationRef.current(url, chapter, false, true);
+        } else {
+          if (startPageTranslationRef.current) startPageTranslationRef.current(url, false, true);
         }
       } else {
         // 히스토리 스택 최하단(초기 진입점)이라면 메인 탭으로 복귀
@@ -669,8 +672,7 @@ function App() {
     }
   };
 
-  // 실시간 번역 공통 구동 코어 함수
-  const triggerTranslationFlow = async (targetUrl, targetMode, forceChapter = null, bypassCache = false, fromPopState = false) => {
+  const startViewerTranslation = async (targetUrl, forceChapter = null, bypassCache = false, fromPopState = false) => {
     const activeKey = getActiveApiKey();
     if (!activeKey) {
       alert('API Key를 먼저 설정에서 1개 이상 등록해 주세요.');
@@ -678,7 +680,7 @@ function App() {
       return;
     }
 
-    triggerTranslationFlowRef.current = triggerTranslationFlow; // 현재 최신 클로저 함수 저장
+    startViewerTranslationRef.current = startViewerTranslation;
 
     translationSessionIdRef.current += 1;
     const currentSessionId = translationSessionIdRef.current;
@@ -694,8 +696,269 @@ function App() {
     const rawSubPrompt = selectedPreset === 'default' ? '' : getPromptContent(selectedLang, selectedPreset);
     const chapterToUse = forceChapter !== null ? forceChapter : detectChapterFromUrl(targetUrl);
 
-    // [54단계 핵심] 웹페이지 모드(page) 인메모리 캐시 히트 시 즉시 반환 (콜로모급 뒤로가기 체감)
-    if (targetMode === 'page' && !bypassCache && pageCacheRef.current[targetUrl]) {
+    try {
+      setTransProgress(20);
+      const res = await fetch(`/api/proxy?url=${encodeURIComponent(targetUrl)}`);
+      if (!res.ok) throw new Error('CORS 프록시 서버 통신 실패');
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      const tempTitle = data.html.match(/<title>(.*?)<\/title>/i)?.[1] || '번역된 소설';
+      const siteName = targetUrl.includes('52shuku') ? '52shuku' : targetUrl.includes('jjwxc') ? '진강문학성' : targetUrl.includes('ao3') ? 'AO3' : '기타';
+
+      const { title, paragraphs, prevUrl, nextUrl, indexUrl } = extractNovelContent(data.html, targetUrl);
+      
+      if (!paragraphs || paragraphs.length === 0) {
+        throw new Error('소설 본문을 사이트로부터 정상적으로 긁어오지 못했습니다. 본문이 있는 정상적인 뷰어 주소인지 확인해 주세요.');
+      }
+      
+      let translatedTitle = title;
+      try {
+        translatedTitle = await translateTextWithRotation(
+          title, 
+          "Translate this novel title into natural, clean Korean. Return ONLY the translated Korean text without any other explanations or punctuation.", 
+          selectedModel
+        );
+      } catch (e) {
+        console.warn("Title translation fallback:", e);
+      }
+      
+      const combinedTitle = `${translatedTitle.trim()} / ${title.trim()}`;
+      setViewerTitle(combinedTitle);
+      setViewerPrevUrl(prevUrl || '');
+      setViewerNextUrl(nextUrl || '');
+      setViewerIndexUrl(indexUrl || '');
+      
+      const masterUrl = getNovelMasterUrl(targetUrl);
+      const existingNovel = novels.find(n => n.masterUrl === masterUrl || n.title === combinedTitle || n.title === title);
+      
+      let novelId;
+      if (existingNovel) {
+        novelId = existingNovel.id;
+        await saveNovel({
+          ...existingNovel,
+          lastReadChapter: chapterToUse,
+          lastReadUrl: targetUrl,
+          lang: selectedLang,
+          presetId: selectedPreset,
+          updatedAt: Date.now()
+        });
+      } else {
+        novelId = await saveNovel({
+          title: combinedTitle,
+          masterUrl,
+          url: targetUrl,
+          lastReadUrl: targetUrl,
+          site: siteName,
+          lastReadChapter: chapterToUse,
+          lang: selectedLang,
+          presetId: selectedPreset,
+          updatedAt: Date.now()
+        });
+      }
+      
+      const updatedList = await getNovels();
+      setNovels(updatedList);
+
+      setActiveViewerNovelId(novelId);
+
+      if (bypassCache && novelId && chapterToUse) {
+        await deleteEpisodes(novelId, [chapterToUse]);
+      }
+
+      const cached = bypassCache ? null : await getEpisode(novelId, chapterToUse);
+      if (cached) {
+        const parsedLines = JSON.parse(cached.translatedText);
+        const origLines = JSON.parse(cached.originalText || '[]');
+        const formatted = parsedLines.map((t, i) => ({ translated: t, original: origLines[i] || '' }));
+        if (!fromPopState) {
+          window.history.pushState({ isAppInternal: true, url: targetUrl, mode: 'viewer', chapter: chapterToUse }, '', window.location.pathname);
+        }
+        setViewerParagraphs(formatted);
+        setTransProgress(100);
+        setActiveTab('viewer');
+      } else {
+        const initialViewerLines = paragraphs.map(p => ({ original: p, translated: 'AI 번역 대기 중...' }));
+        if (!fromPopState) {
+          window.history.pushState({ isAppInternal: true, url: targetUrl, mode: 'viewer', chapter: chapterToUse }, '', window.location.pathname);
+        }
+        setViewerParagraphs(initialViewerLines);
+        setActiveTab('viewer');
+
+        translationAbortControllerRef.current = new AbortController();
+
+        const fullOriginalText = paragraphs.join('\n');
+        const activeSubPrompt = filterActiveGlossary(rawSubPrompt, fullOriginalText);
+        
+        const baseSystemPrompt = activeSubPrompt 
+          ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
+          : basePrompt;
+
+        const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: You must translate the user's text into Korean. Preserve the EXACT number of paragraphs and line breaks as the original text. Do not merge, skip, or reorder paragraphs. Only output the translated text. Do not output any conversational text. You MUST end your response with </main>.`;
+
+        const translatedList = new Array(paragraphs.length).fill('');
+
+        let doneTranslation = false;
+        let continuationCount = 0;
+        const maxContinuationAttempts = 4;
+
+        while (!doneTranslation && continuationCount < maxContinuationAttempts) {
+          const pendingIndices = [];
+          paragraphs.forEach((p, idx) => {
+            if (translatedList[idx] === '' || translatedList[idx] === undefined) {
+              pendingIndices.push(idx);
+            }
+          });
+
+          if (pendingIndices.length === 0) {
+            doneTranslation = true;
+            break;
+          }
+
+          console.log(`[Translation Continuation #${continuationCount + 1}] Processing ${pendingIndices.length} pending paragraphs...`);
+
+          const joinedText = pendingIndices.map(idx => paragraphs[idx].trim()).join('\n');
+          const pendingRawText = joinedText;
+
+          try {
+            let fullAiTextBuffer = ''; 
+
+            const handleStreamChunk = (chunk) => {
+              fullAiTextBuffer = chunk;
+              
+              const lines = fullAiTextBuffer.replace(/<[^>]*>/g, '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+              
+              let maxProcessedIndex = -1;
+              lines.forEach((line, i) => {
+                if (i < pendingIndices.length) {
+                  const idx = pendingIndices[i];
+                  translatedList[idx] = line;
+                  if (idx > maxProcessedIndex) maxProcessedIndex = idx;
+                }
+              });
+
+              setViewerParagraphs(prev => {
+                const next = [...prev];
+                paragraphs.forEach((orig, idx) => {
+                  if (translatedList[idx] !== undefined && translatedList[idx] !== '') {
+                    next[idx] = { original: orig, translated: translatedList[idx] };
+                  } else if (pendingIndices.includes(idx) && idx <= maxProcessedIndex) {
+                    next[idx] = { original: orig, translated: 'AI 번역 가동 중...' };
+                  } else if (pendingIndices.includes(idx)) {
+                    next[idx] = { original: orig, translated: 'AI 번역 대기 중...' };
+                  }
+                });
+                return next;
+              });
+
+              const completedCount = translatedList.filter(t => t !== '').length;
+              const percent = Math.min(Math.round((completedCount / paragraphs.length) * 100), 99);
+              setTransProgress(percent);
+            };
+
+            await translateTextStreamWithRotation(
+              pendingRawText,
+              finalSystemPrompt,
+              selectedModel,
+              handleStreamChunk,
+              translationAbortControllerRef.current.signal,
+              '<main id="번역">\n'
+            );
+
+          } catch (streamErr) {
+            console.warn(`[Stream Continuation Warning] Attempt ${continuationCount + 1} encountered error:`, streamErr);
+            
+            if (cancelTranslationRef.current || streamErr.message?.includes('중단')) {
+              throw streamErr;
+            }
+
+            const errMsg = streamErr.message || '';
+            
+            if (errMsg.includes('ALL_KEYS_EXHAUSTED')) {
+              alert(`[API 할당량 소진] 모든 API Key의 무료 제공량이 초과되었습니다.\n잠시 후(약 1분 뒤) 다시 '재번역'을 누르시거나, 새로운 API Key를 등록해 주세요.`);
+              break; 
+            } else if (errMsg.includes('status: 400')) {
+              const userAgreed = window.confirm(`[API 요청 오류] 번역 요청 중 치명적인 문법/구조 오류가 발생했습니다.\n사유: status: 400 - ai 응답이 비어있거나 차단되었습니다.\n\n서버로 상세 오류 내역을 전송하시겠습니까?`);
+              if (userAgreed) {
+                fetch('/api/report_feedback', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    time: new Date().toISOString(),
+                    url: targetUrl,
+                    memo: 'AUTO-FATAL-REPORT: ' + (streamErr.message || String(streamErr))
+                  })
+                }).catch(() => {});
+              }
+              break; 
+            } else {
+              if (continuationCount === maxContinuationAttempts - 1) {
+                alert(`[네트워크 오류] 일시적인 서버 불안정으로 번역이 실패했습니다.\n사유: ${errMsg}\n잠시 후 다시 시도해 주세요.`);
+              } else {
+                await new Promise(r => setTimeout(r, 2500));
+              }
+            }
+          }
+
+          continuationCount++;
+        }
+
+        setViewerParagraphs(prev => {
+          return prev.map((p, idx) => {
+            const finalTrans = translatedList[idx];
+            const hasDummy = finalTrans === 'AI 번역 대기 중...' || finalTrans === 'AI 번역 가동 중...' || !finalTrans;
+            return {
+              original: p.original,
+              translated: hasDummy ? `${p.original} (번역 실패/미완료)` : finalTrans
+            };
+          });
+        });
+
+        const successCount = translatedList.filter(t => t && t.length > 0).length;
+        if (successCount >= paragraphs.length * 0.8) {
+          const cleanTranslatedText = translatedList.map((t, idx) => t || `${paragraphs[idx]} (번역 실패/미완료)`);
+          await saveEpisode(novelId, chapterToUse, JSON.stringify(cleanTranslatedText), JSON.stringify(paragraphs));
+        } else {
+          console.warn(`[Cache Aborted] Translation success rate too low (${successCount}/${paragraphs.length}). Not saving to DB.`);
+        }
+      }
+      
+      getNovels().then(setNovels);
+    } catch (err) {
+      if (cancelTranslationRef.current || err.name === 'AbortError') {
+        console.log('[Translation] Cancelled by user.');
+      } else {
+        alert('번역 중 오류가 발생했습니다: ' + err.message);
+        reportErrorToBackend(err, `startViewerTranslation for ${targetUrl}`);
+      }
+    } finally {
+      setIsTranslating(false);
+      getCacheStatistics().then(setCacheStats);
+    }
+  };
+
+  const startPageTranslation = async (targetUrl, bypassCache = false, fromPopState = false) => {
+    const activeKey = getActiveApiKey();
+    if (!activeKey) {
+      alert('API Key를 먼저 설정에서 1개 이상 등록해 주세요.');
+      setActiveTab('presets');
+      return;
+    }
+
+    startPageTranslationRef.current = startPageTranslation;
+
+    translationSessionIdRef.current += 1;
+    const currentSessionId = translationSessionIdRef.current;
+
+    setIsTranslating(true);
+    cancelTranslationRef.current = false;
+    setTransProgress(5);
+    setNovelHtmlResult('');
+
+    const basePrompt = basePrompts[selectedLang] || '';
+    const rawSubPrompt = selectedPreset === 'default' ? '' : getPromptContent(selectedLang, selectedPreset);
+
+    if (!bypassCache && pageCacheRef.current[targetUrl]) {
       setTransProgress(100);
       setIsTranslating(false);
       setIframeKey(prev => prev + 1);
@@ -714,286 +977,28 @@ function App() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      const tempTitle = data.html.match(/<title>(.*?)<\/title>/i)?.[1] || '번역된 소설';
-      const siteName = targetUrl.includes('52shuku') ? '52shuku' : targetUrl.includes('jjwxc') ? '진강문학성' : targetUrl.includes('ao3') ? 'AO3' : '기타';
+      const activeSubPrompt = filterActiveGlossary(rawSubPrompt, data.html);
+      const finalSystemPrompt = activeSubPrompt 
+        ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
+        : basePrompt;
 
-      if (targetMode === 'page') {
-        const activeSubPrompt = filterActiveGlossary(rawSubPrompt, data.html);
-        const finalSystemPrompt = activeSubPrompt 
-          ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
-          : basePrompt;
-
-        setPageSystemPrompt(finalSystemPrompt);
-        setTransProgress(5);
-        // iframe 강제 갱신용 key 업데이트 (재번역 및 중복 로드 먹통 현상 해결)
-        setIframeKey(prev => prev + 1);
-        if (!fromPopState) {
-          window.history.pushState({ isAppInternal: true, url: targetUrl, mode: 'page', chapter: null }, '', window.location.pathname);
-        }
-        setNovelHtmlResult(data.html);
-        setActiveTab('pageResult');
-      } else {
-        const { title, paragraphs, prevUrl, nextUrl, indexUrl } = extractNovelContent(data.html, targetUrl);
-        
-        if (!paragraphs || paragraphs.length === 0) {
-          throw new Error('소설 본문을 사이트로부터 정상적으로 긁어오지 못했습니다. 본문이 있는 정상적인 뷰어 주소인지 확인해 주세요.');
-        }
-        
-        // 21단계 핵심: 소설 제목 한글 자동 번역 및 한글/원문 대조 병기 합성
-        let translatedTitle = title;
-        try {
-          translatedTitle = await translateTextWithRotation(
-            title, 
-            "Translate this novel title into natural, clean Korean. Return ONLY the translated Korean text without any other explanations or punctuation.", 
-            selectedModel
-          );
-        } catch (e) {
-          console.warn("Title translation fallback:", e);
-        }
-        
-        const combinedTitle = `${translatedTitle.trim()} / ${title.trim()}`;
-        setViewerTitle(combinedTitle);
-        setViewerPrevUrl(prevUrl || '');
-        setViewerNextUrl(nextUrl || '');
-        setViewerIndexUrl(indexUrl || '');
-        
-        // [소설 마스터 키 중복 제거 적재 알고리즘 (14단계)]
-        // 동일 소설이 이미 저장소(novels)에 있는지 제목 또는 대표 목차 URL을 훑어 검색
-        const masterUrl = getNovelMasterUrl(targetUrl);
-        const existingNovel = novels.find(n => n.masterUrl === masterUrl || n.title === combinedTitle || n.title === title);
-        
-        let novelId;
-        if (existingNovel) {
-          // 이미 존재한다면, 소설 ID를 보존한 채 마지막 읽은 화수와 마지막 읽은 주소만 최신값으로 덮어쓰기 업데이트
-          novelId = existingNovel.id;
-          await saveNovel({
-            ...existingNovel,
-            lastReadChapter: chapterToUse,
-            lastReadUrl: targetUrl,
-            lang: selectedLang,
-            presetId: selectedPreset,
-            updatedAt: Date.now()
-          });
-        } else {
-          // 신규 소설일 시 신규 등록 (합성 병기된 제목 저장)
-          novelId = await saveNovel({
-            title: combinedTitle,
-            masterUrl,
-            url: targetUrl,
-            lastReadUrl: targetUrl,
-            site: siteName,
-            lastReadChapter: chapterToUse,
-            lang: selectedLang,
-            presetId: selectedPreset,
-            updatedAt: Date.now()
-          });
-        }
-        
-        // 소설 정보 저장 후 novels React 목록을 즉시 갱신하여 연속 번역 시 중복 적재 발생 차단
-        const updatedList = await getNovels();
-        setNovels(updatedList);
-
-        setActiveViewerNovelId(novelId);
-
-        if (bypassCache && novelId && chapterToUse) {
-          await deleteEpisodes(novelId, [chapterToUse]);
-        }
-
-        const cached = bypassCache ? null : await getEpisode(novelId, chapterToUse);
-        if (cached) {
-          const parsedLines = JSON.parse(cached.translatedText);
-          const origLines = JSON.parse(cached.originalText || '[]');
-          const formatted = parsedLines.map((t, i) => ({ translated: t, original: origLines[i] || '' }));
-          if (!fromPopState) {
-            window.history.pushState({ isAppInternal: true, url: targetUrl, mode: 'viewer', chapter: chapterToUse }, '', window.location.pathname);
-          }
-          setViewerParagraphs(formatted);
-          setTransProgress(100);
-          setActiveTab('viewer');
-        } else {
-          const initialViewerLines = paragraphs.map(p => ({ original: p, translated: 'AI 번역 대기 중...' }));
-          if (!fromPopState) {
-            window.history.pushState({ isAppInternal: true, url: targetUrl, mode: 'viewer', chapter: chapterToUse }, '', window.location.pathname);
-          }
-          setViewerParagraphs(initialViewerLines);
-          setActiveTab('viewer');
-
-          // AbortController 기동 (23단계 핵심)
-          translationAbortControllerRef.current = new AbortController();
-
-          // 1회 묶음 프롬프트 구성 (RPD 1회 소모)
-          const fullOriginalText = paragraphs.join('\n');
-          const activeSubPrompt = filterActiveGlossary(rawSubPrompt, fullOriginalText);
-          
-          // 계층 프롬프트 합성 및 대량 단락 순서/형식 유지 엄격한 지시어 병합
-          const baseSystemPrompt = activeSubPrompt 
-            ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
-            : basePrompt;
-
-          // [59단계] 콜로모 방식 롤백 및 Assistant Prefill 적용: 구글 자체 검열 우회 및 효율성 극대화
-          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: You must translate the user's text into Korean. Preserve the EXACT number of paragraphs and line breaks as the original text. Do not merge, skip, or reorder paragraphs. Only output the translated text. Do not output any conversational text. You MUST end your response with </main>.`;
-
-          const translatedList = new Array(paragraphs.length).fill('');
-
-          // 24단계 핵심: 초장문/출력한계 대비 자동 연쇄 스트리밍 루프 구동
-          let doneTranslation = false;
-          let continuationCount = 0;
-          const maxContinuationAttempts = 4; // 최대 4차 연쇄까지 지원 (약 3만자 이상 초장문 방어)
-
-          while (!doneTranslation && continuationCount < maxContinuationAttempts) {
-            // 아직 번역이 완료되지 않은 미완성 단락 인덱스만 추출
-            const pendingIndices = [];
-            paragraphs.forEach((p, idx) => {
-              if (translatedList[idx] === '' || translatedList[idx] === undefined) {
-                pendingIndices.push(idx);
-              }
-            });
-
-            // 모든 단락의 번역이 완수되었다면 즉시 연쇄 루프 탈출!
-            if (pendingIndices.length === 0) {
-              doneTranslation = true;
-              break;
-            }
-
-            console.log(`[Translation Continuation #${continuationCount + 1}] Processing ${pendingIndices.length} pending paragraphs...`);
-
-            // [58단계] 태그 부작용 완전 제거: 불필요한 <main> 껍데기 삭제 (AI가 태그만 닫고 종료하는 버그 완벽 방지)
-            const joinedText = pendingIndices.map(idx => paragraphs[idx].trim()).join('\n');
-            const pendingRawText = joinedText;
-
-            try {
-              // [55.1단계] 100% 순차 매칭 파서 (스트리밍 버그 수정)
-              let fullAiTextBuffer = ''; 
-
-              const handleStreamChunk = (chunk) => {
-                // 스트리밍 버그 Fix: 누적이 아니라 덮어쓰기! apiRotator가 전체 누적 텍스트를 던져줌
-                fullAiTextBuffer = chunk;
-                
-                // 순수 텍스트에서 태그 찌꺼기(<main> 등)를 날리고 줄바꿈 기준으로 쪼갬
-                const lines = fullAiTextBuffer.replace(/<[^>]*>/g, '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
-                
-                let maxProcessedIndex = -1;
-                lines.forEach((line, i) => {
-                  if (i < pendingIndices.length) {
-                    const idx = pendingIndices[i];
-                    translatedList[idx] = line;
-                    if (idx > maxProcessedIndex) maxProcessedIndex = idx;
-                  }
-                });
-
-                setViewerParagraphs(prev => {
-                  const next = [...prev];
-                  paragraphs.forEach((orig, idx) => {
-                    if (translatedList[idx] !== undefined && translatedList[idx] !== '') {
-                      next[idx] = { original: orig, translated: translatedList[idx] };
-                    } else if (pendingIndices.includes(idx) && idx <= maxProcessedIndex) {
-                      next[idx] = { original: orig, translated: 'AI 번역 가동 중...' };
-                    } else if (pendingIndices.includes(idx)) {
-                      next[idx] = { original: orig, translated: 'AI 번역 대기 중...' };
-                    }
-                  });
-                  return next;
-                });
-
-                const completedCount = translatedList.filter(t => t !== '').length;
-                const percent = Math.min(Math.round((completedCount / paragraphs.length) * 100), 99);
-                setTransProgress(percent);
-              };
-
-              await translateTextStreamWithRotation(
-                pendingRawText,
-                finalSystemPrompt,
-                selectedModel,
-                handleStreamChunk,
-                translationAbortControllerRef.current.signal,
-                '<main id="번역">\n' // [59단계 핵심] 검열 우회용 Assistant Prefill
-              );
-
-            } catch (streamErr) {
-              console.warn(`[Stream Continuation Warning] Attempt ${continuationCount + 1} encountered error:`, streamErr);
-              
-              // 긴급 중지 또는 Abort 된 경우 루프 파쇄 탈출
-              if (cancelTranslationRef.current || streamErr.message?.includes('중단')) {
-                throw streamErr;
-              }
-
-              // [57단계] 스마트 에러 핸들링 (Smart Retry)
-              const errMsg = streamErr.message || '';
-              
-              if (errMsg.includes('ALL_KEYS_EXHAUSTED')) {
-                // 1. 모든 키 할당량 소진: 백그라운드 재시도 무의미, 즉시 차단 및 알림
-                alert(`[API 할당량 소진] 모든 API Key의 무료 제공량이 초과되었습니다.\n잠시 후(약 1분 뒤) 다시 '재번역'을 누르시거나, 새로운 API Key를 등록해 주세요.`);
-                break; // 무지성 재시도 폭파
-              } else if (errMsg.includes('status: 400')) {
-                // 2. 400 Bad Request 등 구조적 문법 오류: 재시도 무의미
-                const userAgreed = window.confirm(`[API 요청 오류] 번역 요청 중 치명적인 문법/구조 오류가 발생했습니다.\n사유: status: 400 - ai 응답이 비어있거나 차단되었습니다.\n\n서버로 상세 오류 내역을 전송하시겠습니까?`);
-                if (userAgreed) {
-                  fetch('/api/report_feedback', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      time: new Date().toISOString(),
-                      url: targetUrl,
-                      memo: 'AUTO-FATAL-REPORT: ' + (streamErr.message || String(streamErr))
-                    })
-                  }).catch(() => {});
-                }
-                break; // 재시도 폭파
-              } else {
-                // 3. 500 등 네트워크 일시 오류: 백그라운드 재시도 허용 (유저 편의성)
-                // 연속 실패 시 마지막에 알림 띄움
-                if (continuationCount === maxContinuationAttempts - 1) {
-                  alert(`[네트워크 오류] 일시적인 서버 불안정으로 번역이 실패했습니다.\n사유: ${errMsg}\n잠시 후 다시 시도해 주세요.`);
-                } else {
-                  // 다음 재시도까지 2.5초 대기 (서버 부하 감소 및 쿨타임)
-                  await new Promise(r => setTimeout(r, 2500));
-                }
-              }
-            }
-
-            continuationCount++;
-          }
-
-          // 루프가 도는 동안 비어 있는 인덱스 보정 (누락 및 가동중 텍스트 잔재 소거)
-          setViewerParagraphs(prev => {
-            return prev.map((p, idx) => {
-              const finalTrans = translatedList[idx];
-              const hasDummy = finalTrans === 'AI 번역 대기 중...' || finalTrans === 'AI 번역 가동 중...' || !finalTrans;
-              return {
-                original: p.original,
-                translated: hasDummy ? `${p.original} (번역 실패/미완료)` : finalTrans
-              };
-            });
-          });
-
-          // [55단계] 최종 캐시 디스크 1회 기록 (Cache Corruption 방지)
-          // 빈칸을 원문으로 채워서 성공한 척 저장하는 사악한 로직 파쇄
-          const successCount = translatedList.filter(t => t && t.length > 0).length;
-          // 성공률이 80% 이상일 때만 영구 캐싱 수행 (부분 실패 시 다음번 재접속 때 다시 번역할 기회 제공)
-          if (successCount >= paragraphs.length * 0.8) {
-            const cleanTranslatedText = translatedList.map((t, idx) => t || `${paragraphs[idx]} (번역 실패/미완료)`);
-            await saveEpisode(novelId, chapterToUse, JSON.stringify(cleanTranslatedText), JSON.stringify(paragraphs));
-          } else {
-            console.warn(`[Cache Aborted] Translation success rate too low (${successCount}/${paragraphs.length}). Not saving to DB.`);
-          }
-        }
-        
-        getNovels().then(setNovels);
+      setPageSystemPrompt(finalSystemPrompt);
+      setTransProgress(5);
+      
+      setIframeKey(prev => prev + 1);
+      if (!fromPopState) {
+        window.history.pushState({ isAppInternal: true, url: targetUrl, mode: 'page', chapter: null }, '', window.location.pathname);
       }
+      setNovelHtmlResult(data.html);
+      setActiveTab('pageResult');
     } catch (err) {
       if (cancelTranslationRef.current || err.name === 'AbortError') {
         console.log('[Translation] Cancelled by user.');
       } else {
         alert('번역 중 오류가 발생했습니다: ' + err.message);
-        reportErrorToBackend(err, `triggerTranslationFlow for ${targetUrl}`);
+        reportErrorToBackend(err, `startPageTranslation for ${targetUrl}`);
       }
-    } finally {
-      // [39단계 핵심] page 모드는 iframe onLoad 이후 백그라운드 번역이 완료(setIsTranslating(false))를 직접 제어하므로,
-      // viewer 모드일 때만 여기서 동기적으로 번역 상태를 해제합니다.
-      if (targetMode !== 'page') {
-        setIsTranslating(false);
-      }
-      getCacheStatistics().then(setCacheStats);
+      setIsTranslating(false);
     }
   };
 
@@ -1005,7 +1010,11 @@ function App() {
     const detectedChapter = detectChapterFromUrl(inputUrl);
     setActiveViewerChapter(detectedChapter);
 
-    triggerTranslationFlow(inputUrl, finalMode, finalMode === 'viewer' ? detectedChapter : null, true);
+    if (finalMode === 'viewer') {
+      startViewerTranslation(inputUrl, detectedChapter, true, false);
+    } else {
+      startPageTranslation(inputUrl, true, false);
+    }
   };
 
   // iframe 내부 링크 클릭 가로채기 핸들러
@@ -1021,11 +1030,11 @@ function App() {
       setInputUrl(originalAbsoluteUrl);
       setTransMode('viewer');
       setActiveViewerChapter(detectedChapter);
-      triggerTranslationFlow(originalAbsoluteUrl, 'viewer', detectedChapter);
+      startViewerTranslation(originalAbsoluteUrl, detectedChapter);
     } else {
       setInputUrl(originalAbsoluteUrl);
       setTransMode('page');
-      triggerTranslationFlow(originalAbsoluteUrl, 'page');
+      startPageTranslation(originalAbsoluteUrl);
     }
   };
 
@@ -1087,7 +1096,7 @@ function App() {
     setActiveTab('translate');
 
     // 보관함 소설 카드를 누르는 즉시 자동으로 번역 엔진을 구동해 감상창으로 워프합니다!
-    triggerTranslationFlow(urlToLoad, 'viewer', chapterToLoad);
+    startViewerTranslation(urlToLoad, chapterToLoad);
   };
 
   // 뷰어 하단 이전화/다음화/목차 클릭 액션 라우터 (18단계 핵심)
@@ -1106,7 +1115,11 @@ function App() {
     }
 
     // 즉시 실시간 스트리밍 번역 구동
-    triggerTranslationFlow(targetUrl, finalMode, isEpisode ? detectedChapter : null);
+    if (finalMode === 'viewer') {
+      startViewerTranslation(targetUrl, isEpisode ? detectedChapter : null);
+    } else {
+      startPageTranslation(targetUrl);
+    }
   };
 
   const handleClearCache = async () => {
@@ -1658,7 +1671,7 @@ function App() {
                 {!isTranslating && (
                   <button 
                     onClick={() => {
-                      triggerTranslationFlow(inputUrl, 'viewer', activeViewerChapter, true);
+                      startViewerTranslation(inputUrl, activeViewerChapter, true, false);
                     }}
                     style={{ 
                       background: 'linear-gradient(135deg, #81c784, #83c5be)', 
@@ -1825,11 +1838,7 @@ function App() {
               <button 
                 onClick={() => {
                   setLastTranslateSubTab('translate');
-                  if (window.history.state?.isAppInternal) {
-                    window.history.back();
-                  } else {
-                    setActiveTab('translate');
-                  }
+                  setActiveTab('translate');
                 }}
                 style={{ background: '#252630', border: 'none', color: '#e2e4ed', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap' }}
               >
