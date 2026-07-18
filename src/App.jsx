@@ -927,7 +927,15 @@ function App() {
                 // 2. 400 Bad Request 등 구조적 문법 오류: 재시도 무의미
                 const userAgreed = window.confirm(`[API 요청 오류] 번역 요청 중 치명적인 문법/구조 오류가 발생했습니다.\n사유: status: 400 - ai 응답이 비어있거나 차단되었습니다.\n\n서버로 상세 오류 내역을 전송하시겠습니까?`);
                 if (userAgreed) {
-                  reportErrorToBackend(streamErr, `status: 400 Empty/Safety response on ${targetUrl}`);
+                  fetch('/api/report_feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      time: new Date().toISOString(),
+                      url: targetUrl,
+                      memo: 'AUTO-FATAL-REPORT: ' + (streamErr.message || String(streamErr))
+                    })
+                  }).catch(() => {});
                 }
                 break; // 재시도 폭파
               } else {
