@@ -616,7 +616,7 @@ function App() {
     let translatedCount = 0;
 
     for (let i = 0; i < textNodes.length; i += BATCH_SIZE) {
-      if (translationSessionIdRef.current !== sessionId || (cancelRef && cancelRef.current === true)) {
+      if (translationSessionIdRef.current !== sessionId) {
         console.log('[Iframe Real-time Translator] Cancelled or superseded by new session.');
         break;
       }
@@ -951,7 +951,6 @@ function App() {
     const currentSessionId = translationSessionIdRef.current;
 
     setIsTranslating(true);
-    cancelTranslationRef.current = false;
     setTransProgress(5);
     setNovelHtmlResult('');
 
@@ -1022,6 +1021,7 @@ function App() {
     // 이전 페이지의 번역 가동을 선제적으로 취소하여 렉 및 충돌 방지
     cancelTranslationRef.current = true;
     translationAbortControllerRef.current?.abort();
+    translationSessionIdRef.current += 1; // 웹페이지 모드 전용 세션 강제 만료
 
     const originalAbsoluteUrl = resolveAbsoluteUrl(inputUrlRef.current, clickedUrl);
     
@@ -1551,6 +1551,8 @@ function App() {
                 onClick={() => {
                   cancelTranslationRef.current = true;
                   translationAbortControllerRef.current?.abort();
+                  translationSessionIdRef.current += 1;
+                  setIsTranslating(false);
                   alert('번역이 중단되었습니다.');
                 }}
                 style={{
@@ -1856,6 +1858,8 @@ function App() {
                     onClick={() => {
                       cancelTranslationRef.current = true;
                       translationAbortControllerRef.current?.abort();
+                      translationSessionIdRef.current += 1;
+                      setIsTranslating(false);
                     }}
                     style={{ background: '#e78284', border: 'none', color: '#11111b', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: 'auto', whiteSpace: 'nowrap' }}
                   >
