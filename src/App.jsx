@@ -830,8 +830,8 @@ function App() {
             ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
             : basePrompt;
 
-          // [55.2단계] Colomo 방식 심화: 어설픈 마크업 흉내 완전 제거, 순수 텍스트 줄바꿈 유지 지시
-          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: You must translate the user's text into Korean. Preserve the EXACT number of paragraphs and line breaks as the original text. Do not merge, skip, or reorder paragraphs. Only output the translated text.`;
+          // [57단계 롤백] 콜로모에서 검증된 <main id="원문"> 프롬프트 방식으로 원상 복구 (오류의 원인이 아니었음)
+          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: The user will provide the original text wrapped in <main id="원문">. You must output ONLY the translated Korean text, preserving the exact number of paragraphs and line breaks. Do not merge or skip paragraphs.`;
 
           const translatedList = new Array(paragraphs.length).fill('');
 
@@ -857,9 +857,9 @@ function App() {
 
             console.log(`[Translation Continuation #${continuationCount + 1}] Processing ${pendingIndices.length} pending paragraphs...`);
 
-            // [55.2단계] Colomo 방식 심화: 불필요한 <main> 태그 삭제 (AI가 태그만 닫고 종료하는 버그 방지)
+            // [57단계 롤백] 콜로모 방식 원상 복구: <main> 태그로 전체 원문 통째로 묶기
             const joinedText = pendingIndices.map(idx => paragraphs[idx].trim()).join('\n');
-            const pendingRawText = joinedText;
+            const pendingRawText = `<main id="원문">\n${joinedText}\n</main>\n<main id="번역">\n`;
 
             try {
               // [55.1단계] 100% 순차 매칭 파서 (스트리밍 버그 수정)
@@ -916,13 +916,27 @@ function App() {
                 throw streamErr;
               }
 
-              // [56단계] API 할당량 소진 등 지속적 오류 발생 시 사용자 명시적 알림
-              if (continuationCount === maxContinuationAttempts - 1) {
-                alert(`[API 오류] 번역이 실패했습니다.\n\n사유: ${streamErr.message}\n(가장 흔한 원인은 '무료 제공량 일일 한도 초과(RATE_LIMIT)'입니다. 잠시 후 시도하시거나, 설정에서 새로운 API Key를 추가해 주세요.)`);
-              }
+              // [57단계] 스마트 에러 핸들링 (Smart Retry)
+              const errMsg = streamErr.message || '';
               
-              // 다음 키로 시도할 기회를 주기 위해 강제 delay를 살짝 둔다
-              await new Promise(r => setTimeout(r, 2000));
+              if (errMsg.includes('ALL_KEYS_EXHAUSTED')) {
+                // 1. 모든 키 할당량 소진: 백그라운드 재시도 무의미, 즉시 차단 및 알림
+                alert(`[API 할당량 소진] 모든 API Key의 무료 제공량이 초과되었습니다.\n잠시 후(약 1분 뒤) 다시 '재번역'을 누르시거나, 새로운 API Key를 등록해 주세요.`);
+                break; // 무지성 재시도 폭파
+              } else if (errMsg.includes('status: 400')) {
+                // 2. 400 Bad Request 등 구조적 문법 오류: 재시도 무의미
+                alert(`[API 요청 오류] 번역 요청 중 치명적인 문법/구조 오류가 발생했습니다.\n사유: ${errMsg}`);
+                break; // 재시도 폭파
+              } else {
+                // 3. 500 등 네트워크 일시 오류: 백그라운드 재시도 허용 (유저 편의성)
+                // 연속 실패 시 마지막에 알림 띄움
+                if (continuationCount === maxContinuationAttempts - 1) {
+                  alert(`[네트워크 오류] 일시적인 서버 불안정으로 번역이 실패했습니다.\n사유: ${errMsg}\n잠시 후 다시 시도해 주세요.`);
+                } else {
+                  // 다음 재시도까지 2.5초 대기 (서버 부하 감소 및 쿨타임)
+                  await new Promise(r => setTimeout(r, 2500));
+                }
+              }
             }
 
             continuationCount++;

@@ -161,7 +161,7 @@ export async function translateTextWithRotation(textToTranslate, systemInstructi
 
       const responseData = await response.json();
 
-      // 1. 할당량 초과(429) 또는 인증 오류(400/403) 발생 시 키 로테이션 후 재시도
+      // [57단계] 할당량 초과(429) 또는 인증 오류(400/403) 발생 시 키 로테이션 후 재시도
       if (response.status === 429 || (responseData.error && (
         responseData.error.status === 'RESOURCE_EXHAUSTED' || 
         responseData.error.message.includes('API key') ||
@@ -191,22 +191,16 @@ export async function translateTextWithRotation(textToTranslate, systemInstructi
 
       return translatedText;
 
-    } catch (error) {
-      // 네트워크 장애 등 물리적 실패가 발생했을 때
-      console.error(`[Fetch Failure] Attempt ${attempts + 1} failed:`, error);
-      
-      // 마지막 시도였다면 에러를 전방으로 전달
-      if (attempts === maxAttempts - 1) {
-        throw new Error(`모든 API Key 사용 실패: ${error.message}`);
-      }
-      
-      // 장애 시에도 일단 키를 돌려 다른 키로 시도
+    } catch (e) {
+      if (e.message === '사용자에 의해 번역이 강제 중단되었습니다.') throw e;
+      console.warn(`[Gemini API Request Error] ${e.message}`);
       rotateApiKey();
       attempts++;
     }
   }
 
-  throw new Error('모든 API Key의 일일 한도가 소모되었거나 유효하지 않습니다.');
+  // [57단계] 모든 키 소진 시 명시적인 에러 메시지(ALL_KEYS_EXHAUSTED) 반환
+  throw new Error('ALL_KEYS_EXHAUSTED');
 }
 
 /**
@@ -294,7 +288,8 @@ export async function translateTextStreamWithRotation(textToTranslate, systemIns
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        if (errData.error?.message?.includes('API key') || errData.error?.status === 'RESOURCE_EXHAUSTED') {
+        // [57단계] 스트리밍에서도 429 에러 명시적 감지 추가 (RESOURCE_EXHAUSTED가 아닐 때도 로테이션)
+        if (response.status === 429 || errData.error?.message?.includes('API key') || errData.error?.status === 'RESOURCE_EXHAUSTED') {
           rotateApiKey();
           attempts++;
           continue;
@@ -345,14 +340,13 @@ export async function translateTextStreamWithRotation(textToTranslate, systemIns
       }
       console.error(`[Stream Fetch Failure] Attempt ${attempts + 1}:`, error);
 
-      if (attempts === maxAttempts - 1) {
-        throw new Error(`모든 API Key 사용 실패: ${error.message}`);
-      }
+      if (error.message.includes('status: 400')) throw error; // [57단계] 400 에러는 즉시 상위로 던짐
 
       rotateApiKey();
       attempts++;
     }
   }
 
-  throw new Error('모든 API Key의 일일 한도가 소모되었거나 유효하지 않습니다.');
+  // [57단계] 모든 키 소진 시 명시적인 에러 메시지(ALL_KEYS_EXHAUSTED) 반환
+  throw new Error('ALL_KEYS_EXHAUSTED');
 }
