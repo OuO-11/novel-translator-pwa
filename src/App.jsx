@@ -573,7 +573,7 @@ function App() {
   };
 
   // [39단계/54단계 핵심: iframe 문서 내 텍스트 노드 실시간 번역 교체 함수 (비구씨/콜로모 방식)]
-  const translateIframeDocument = async (iframeDoc, systemPrompt, model, cancelRef, sessionId, url) => {
+  const translateIframeDocument = async (iframeDoc, systemPrompt, model, sessionId, url) => {
     const EXCLUDE_TAGS = ['SCRIPT', 'STYLE', 'LINK', 'META', 'HEAD', 'NOSCRIPT', 'TEMPLATE'];
     const textNodes = [];
 
@@ -1045,10 +1045,13 @@ function App() {
       const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
       if (!iframeDoc) return;
 
+      // 임시 빈 문서 로딩 시에는 번역기 가동을 방지하여 isTranslating 상태가 false로 강제 종료되는 현상 방지
+      if (!novelHtmlResult) return;
+
       // [39단계/54단계 핵심] 번역 기동 상태라면 백그라운드에서 실시간 텍스트 번역 교체 태스크 가동
       if (isTranslating && !iframeDoc.__isTranslating) {
         iframeDoc.__isTranslating = true;
-        translateIframeDocument(iframeDoc, pageSystemPrompt, selectedModel, cancelTranslationRef, translationSessionIdRef.current, inputUrlRef.current);
+        translateIframeDocument(iframeDoc, pageSystemPrompt, selectedModel, translationSessionIdRef.current, inputUrlRef.current);
       }
 
       // [52단계 핵심] 심층 이벤트 캡처링: <a> 태그 루프 폐기 및 모든 클릭/드롭다운 가로채기
@@ -1871,7 +1874,7 @@ function App() {
               {!isTranslating && novelHtmlResult && (
                 <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
                   <button
-                    onClick={() => triggerTranslationFlow(inputUrl, 'page', null, true)}
+                    onClick={() => startPageTranslation(inputUrl, true, false)}
                     style={{ background: '#222822', border: '1px solid #81c784', color: '#81c784', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', whiteSpace: 'nowrap' }}
                   >
                     재번역
