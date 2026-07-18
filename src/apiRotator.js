@@ -128,7 +128,8 @@ export async function translateTextWithRotation(textToTranslate, systemInstructi
         ]
       },
       generationConfig: {
-        temperature: 0.3 // 소설의 일관된 번역 퀄리티를 위해 낮은 온도로 세팅
+        temperature: 0.8,
+        topP: 0.8
       },
       safetySettings: [
         {
@@ -243,7 +244,8 @@ export async function translateTextStreamWithRotation(textToTranslate, systemIns
         ]
       },
       generationConfig: {
-        temperature: 0.3
+        temperature: 0.8,
+        topP: 0.8
       },
       safetySettings: [
         {

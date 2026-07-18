@@ -830,8 +830,8 @@ function App() {
             ? `${basePrompt}\n\n[추가 특정 작품/용어 사전 지침]\n${activeSubPrompt}` 
             : basePrompt;
 
-          // [57단계 롤백] 콜로모에서 검증된 <main id="원문"> 프롬프트 방식으로 원상 복구 (오류의 원인이 아니었음)
-          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: The user will provide the original text wrapped in <main id="원문">. You must output ONLY the translated Korean text, preserving the exact number of paragraphs and line breaks. Do not merge or skip paragraphs.`;
+          // [58단계] 태그 부작용 완전 제거: 순수 텍스트 줄바꿈 유지 번역만 지시
+          const finalSystemPrompt = `${baseSystemPrompt}\n\nIMPORTANT: You must translate the user's text into Korean. Preserve the EXACT number of paragraphs and line breaks as the original text. Do not merge, skip, or reorder paragraphs. Only output the translated text.`;
 
           const translatedList = new Array(paragraphs.length).fill('');
 
@@ -857,9 +857,9 @@ function App() {
 
             console.log(`[Translation Continuation #${continuationCount + 1}] Processing ${pendingIndices.length} pending paragraphs...`);
 
-            // [57단계 롤백] 콜로모 방식 원상 복구: <main> 태그로 전체 원문 통째로 묶기
+            // [58단계] 태그 부작용 완전 제거: 불필요한 <main> 껍데기 삭제 (AI가 태그만 닫고 종료하는 버그 완벽 방지)
             const joinedText = pendingIndices.map(idx => paragraphs[idx].trim()).join('\n');
-            const pendingRawText = `<main id="원문">\n${joinedText}\n</main>\n<main id="번역">\n`;
+            const pendingRawText = joinedText;
 
             try {
               // [55.1단계] 100% 순차 매칭 파서 (스트리밍 버그 수정)
