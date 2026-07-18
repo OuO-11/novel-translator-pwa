@@ -334,6 +334,10 @@ export async function translateTextStreamWithRotation(textToTranslate, systemIns
         }
       }
 
+      if (accumulatedText.trim() === '') {
+        throw new Error(`status: 400 - AI 응답 파싱 실패 또는 Safety 차단.\n[RAW 스트림 JSON]: ${buffer}`);
+      }
+
       return accumulatedText;
 
     } catch (error) {

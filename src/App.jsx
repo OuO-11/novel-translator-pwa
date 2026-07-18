@@ -908,12 +908,6 @@ function App() {
                 translationAbortControllerRef.current.signal
               );
 
-              // [추적용 코드] AI가 빈 텍스트를 주거나 파싱 후 남는 글자가 0글자일 때 강제로 치명적 에러 발생시켜 알림창 띄움
-              const finalLines = fullAiTextBuffer.replace(/<[^>]*>/g, '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
-              if (finalLines.length === 0) {
-                throw new Error(`status: 400 - AI 응답이 비어있거나 차단되었습니다.\n[RAW 응답 버퍼]: ${fullAiTextBuffer}`);
-              }
-
             } catch (streamErr) {
               console.warn(`[Stream Continuation Warning] Attempt ${continuationCount + 1} encountered error:`, streamErr);
               
