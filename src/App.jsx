@@ -864,26 +864,42 @@ function App() {
             const pendingRawText = pendingIndices.map(idx => `<p id="${indexToId(idx)}">${paragraphs[idx].trim()}</p>`).join('\n');
 
             try {
-              // [45단계] colomo.dev 방식 버퍼 분할 스트리밍 파서
+              // [45단계/55단계] colomo.dev 방식 버퍼 분할 스트리밍 파서 및 Sequential Fallback
               // 청크를 </p> 기준으로 분할 → 완성된 조각만 즉시 파싱, 미완성 조각은 버퍼에 킵
               let streamBuffer = '';
+              let fullAiTextBuffer = ''; // 전체 순수 텍스트 백업 (포맷 붕괴 대비 Fallback 용도)
               let maxProcessedIndex = -1;
 
               const handleStreamChunk = (chunk) => {
                 streamBuffer += chunk;
+                fullAiTextBuffer += chunk;
                 const parts = streamBuffer.split(/<\/p>/i);
                 // 마지막 원소는 아직 </p>가 오지 않은 미완성 조각 → 버퍼에 보관
                 streamBuffer = parts.pop();
 
                 for (const part of parts) {
-                  // <p id="ID">번역문 형태에서 ID와 번역문 추출
-                  const m = part.match(/<p(?:\s+id="([A-Za-z0-9]+)")?>([^]*)/i);
-                  if (!m) continue;
-                  const rawId = m[1];
+                  // [55단계] 정규식 강화: 따옴표 유무, 공백 유무를 모두 허용
+                  let rawId = null;
+                  let translatedVal = '';
+                  const m = part.match(/<p(?:\s+id=["']?([A-Za-z0-9]+)["']?)?\s*>([^]*)/i);
+                  
+                  if (m && m[1]) {
+                    rawId = m[1];
+                    translatedVal = m[2];
+                  } else {
+                    // Fallback for [ID] text format if AI ignored HTML
+                    const m2 = part.match(/\[([A-Za-z0-9]+)\]([^]*)/);
+                    if (m2 && m2[1]) {
+                      rawId = m2[1];
+                      translatedVal = m2[2];
+                    }
+                  }
+
                   if (!rawId) continue;
                   const idx = idToIndex(rawId);
                   if (!pendingIndices.includes(idx)) continue;
-                  const translatedVal = m[2].replace(/<[^>]*>/g, '').trim();
+                  
+                  translatedVal = translatedVal.replace(/<[^>]*>/g, '').trim();
                   if (!translatedVal) continue;
 
                   translatedList[idx] = translatedVal;
@@ -923,6 +939,21 @@ function App() {
                 handleStreamChunk('</p>');
               }
 
+              // [55단계 핵심] Sequential Fallback (콜로모식 순차 매칭)
+              // AI가 포맷을 완전히 무시하고 순수 텍스트만 출력했을 경우, 파싱 성공 개수가 0개임
+              const parsedCount = translatedList.filter(t => t !== '').length;
+              if (parsedCount === 0 && fullAiTextBuffer.trim()) {
+                console.log(`[Sequential Fallback] AI ignored tags. Applying sequential mapping for ${pendingIndices.length} items.`);
+                // 순수 텍스트에서 태그 찌꺼기를 날리고 줄바꿈 기준으로 쪼갬
+                const lines = fullAiTextBuffer.replace(/<[^>]*>/g, '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                
+                lines.forEach((line, i) => {
+                  if (i < pendingIndices.length) {
+                    translatedList[pendingIndices[i]] = line;
+                  }
+                });
+              }
+
             } catch (streamErr) {
               console.warn(`[Stream Continuation Warning] Attempt ${continuationCount + 1} encountered error:`, streamErr);
               
@@ -950,11 +981,15 @@ function App() {
             });
           });
 
-          // 최종 캐시 디스크 1회 기록
+          // [55단계] 최종 캐시 디스크 1회 기록 (Cache Corruption 방지)
+          // 빈칸을 원문으로 채워서 성공한 척 저장하는 사악한 로직 파쇄
           const successCount = translatedList.filter(t => t && t.length > 0).length;
-          if (successCount > 0) {
-            const cleanTranslatedText = translatedList.map((t, idx) => t || paragraphs[idx]);
+          // 성공률이 80% 이상일 때만 영구 캐싱 수행 (부분 실패 시 다음번 재접속 때 다시 번역할 기회 제공)
+          if (successCount >= paragraphs.length * 0.8) {
+            const cleanTranslatedText = translatedList.map((t, idx) => t || `${paragraphs[idx]} (번역 실패/미완료)`);
             await saveEpisode(novelId, chapterToUse, JSON.stringify(cleanTranslatedText), JSON.stringify(paragraphs));
+          } else {
+            console.warn(`[Cache Aborted] Translation success rate too low (${successCount}/${paragraphs.length}). Not saving to DB.`);
           }
         }
         
