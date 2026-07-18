@@ -915,9 +915,14 @@ function App() {
               if (cancelTranslationRef.current || streamErr.message?.includes('중단')) {
                 throw streamErr;
               }
+
+              // [56단계] API 할당량 소진 등 지속적 오류 발생 시 사용자 명시적 알림
+              if (continuationCount === maxContinuationAttempts - 1) {
+                alert(`[API 오류] 번역이 실패했습니다.\n\n사유: ${streamErr.message}\n(가장 흔한 원인은 '무료 제공량 일일 한도 초과(RATE_LIMIT)'입니다. 잠시 후 시도하시거나, 설정에서 새로운 API Key를 추가해 주세요.)`);
+              }
               
               // 다음 키로 시도할 기회를 주기 위해 강제 delay를 살짝 둔다
-              await new Promise(r => setTimeout(r, 1000));
+              await new Promise(r => setTimeout(r, 2000));
             }
 
             continuationCount++;
