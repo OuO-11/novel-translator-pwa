@@ -1,0 +1,5 @@
+{
+  "time": "2026-07-19T17:09:49.237Z",
+  "url": "https://www.52shuku.net/bl/20_b/bjU9T_2.html",
+  "memo": "AUTO-FATAL-REPORT: status: 400 - AI 응답 파싱 실패 또는 Safety 차단.\n[RAW 스트림 JSON]: [{\n  \"candidates\": [\n    {\n      \"content\": {},\n      \"finishReason\": \"PROHIBITED_CONTENT\",\n      \"index\": 0,\n      \"finishMessage\": \"The model output could not be generated. This output contains sensitive words that violate Google's [Generative AI Prohibited Use policy](https://policies.google.com/terms/generative-ai/use-policy). If you think this was an error, [send feedback](https://ai.google.dev/gemini-api/docs/troubleshooting).\"\n    }\n  ],\n  \"usageMetadata\": {\n    \"promptTokenCount\": 2427,\n    \"totalTokenCount\": 2427,\n    \"promptTokensDetails\": [\n      {\n        \"modality\": \"TEXT\",\n        \"tokenCount\": 2427\n      }\n    ],\n    \"serviceTier\": \"standard\"\n  },\n  \"modelVersion\": \"gemini-3.1-flash-lite\",\n  \"responseId\": \"zwRdaprfFKyH2roP3NmisQw\"\n}\n]"
+}
